@@ -23,10 +23,10 @@ export default function App() {
   // Navigation View State
   const [activeTab, setActiveTab] = useState<string>('live-network');
 
-  // Scenario Selector State (Default: ROAD_CLOSURE)
-  const [selectedScenario, setSelectedScenario] = useState<ScenarioId>('ROAD_CLOSURE');
+  // Primary Scenario State: Default to NORMAL (Operational Live Digital Twin)
+  const [selectedScenario, setSelectedScenario] = useState<ScenarioId>('NORMAL');
 
-  // Core Logistics Dataset States
+  // Core Logistics Dataset States (Source of Truth: FirstMile Data Layer)
   const [nodes, setNodes] = useState<LogisticsNode[]>(() => indiaLogisticsService.getNodes());
   const [routes, setRoutes] = useState<LogisticsRoute[]>(() => indiaLogisticsService.getRoutes());
   const [shipments, setShipments] = useState<MovingShipment[]>(() => indiaLogisticsService.getShipments());
@@ -35,12 +35,12 @@ export default function App() {
   const [kpis, setKpis] = useState<ControlTowerKpis>(() => indiaLogisticsService.getKpis());
 
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
-  const [selectedShipmentId, setSelectedShipmentId] = useState<string>('SHP-5002');
+  const [selectedShipmentId, setSelectedShipmentId] = useState<string>('TS09AB1001');
 
-  // 6-Step Visual Simulation States (Requirement 5)
+  // 6-Step Visual Simulation States
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simulationProgress, setSimulationProgress] = useState<number>(0);
-  const [candidateRoutesVisible, setCandidateRoutesVisible] = useState<boolean>(true);
+  const [candidateRoutesVisible, setCandidateRoutesVisible] = useState<boolean>(false);
   const [simulationSteps, setSimulationSteps] = useState<SimulationStep[]>([
     { stepNumber: 1, title: 'Inject disruption', status: 'pending' },
     { stepNumber: 2, title: 'Detect affected routes', status: 'pending' },
@@ -73,7 +73,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // 1. SCENARIO SELECTOR HANDLER (Requirement 1 & 3)
+  // 1. SCENARIO SELECTOR HANDLER
   const handleSelectScenario = (scenarioId: ScenarioId) => {
     setSelectedScenario(scenarioId);
     indiaLogisticsService.setScenario(scenarioId);
@@ -95,7 +95,7 @@ export default function App() {
     syncState();
   };
 
-  // 2. 6-STEP VISUAL SIMULATION RUNNER (Requirement 5)
+  // 2. 6-STEP VISUAL SIMULATION RUNNER
   const handleSimulateImpact = async () => {
     if (isSimulating) return;
     setIsSimulating(true);
@@ -182,12 +182,10 @@ export default function App() {
 
   // 3. FAST RECOVER EXECUTION
   const handleFastRecover = async () => {
-    // If candidate corridors aren't visible yet, run visual steps first
     if (!candidateRoutesVisible) {
       await handleSimulateImpact();
     }
 
-    // Brief commit delay for high visual impact
     await new Promise((r) => setTimeout(r, 300));
 
     // Commit to data layer
@@ -199,7 +197,7 @@ export default function App() {
     setCandidateRoutesVisible(true);
   };
 
-  // 4. Reset Current Scenario Simulation
+  // 4. Reset Current Scenario
   const handleReset = () => {
     handleSelectScenario(selectedScenario);
   };
@@ -209,7 +207,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 font-sans antialiased text-slate-900 select-none">
-      {/* 1. Left Sidebar — Minimal Navigation */}
+      {/* 1. Left Sidebar Navigation */}
       <IndiaSidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -218,7 +216,7 @@ export default function App() {
 
       {/* Main Control Tower Viewport */}
       <div className="flex flex-col flex-1 h-screen min-w-0 overflow-hidden">
-        {/* 2. Top Bar — Title, System Status, Scenario Selector, Search, Clock, FAST RECOVER */}
+        {/* 2. Top Bar — FirstMile Brand, Live Status, No Scenario dropdown in Live Mode */}
         <IndiaTopHeader
           kpis={kpis}
           isDisrupted={isDisrupted}
@@ -229,15 +227,15 @@ export default function App() {
           onReset={handleReset}
         />
 
-        {/* 3. Small KPI Cards Strip */}
+        {/* 3. Small KPI Cards Strip (Real Dataset Values) */}
         <IndiaKpiStrip kpis={kpis} />
 
         {/* Dynamic Main Workspace: Map-First Control Tower */}
         {activeTab === 'live-network' && (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            {/* Center Area: Large Leaflet Map (65-75%) + Small Right Panel */}
+            {/* Center Area: Leaflet Map + Right Panel */}
             <div className="flex flex-1 min-h-0 relative w-full overflow-hidden">
-              {/* 4. Large Central Leaflet Map (Main Focus) */}
+              {/* 4. Large Central Leaflet Map (10 Warehouses + 15 In-Transit Vehicles) */}
               <div className="flex-1 h-full min-w-0 relative">
                 <IndiaLeafletMap
                   nodes={nodes}
@@ -257,22 +255,26 @@ export default function App() {
                 />
               </div>
 
-              {/* 5. Small Right Panel — Active Disruption + AI Recommendation */}
+              {/* 5. Right Panel — Live Fleet Telemetry (15 In Transit) */}
               <IndiaRightPanel
                 disruptions={disruptions}
                 recovery={recovery}
                 isSimulating={isSimulating}
                 onSimulateImpact={handleSimulateImpact}
                 onApplyFastRecover={handleFastRecover}
+                selectedShipmentId={selectedShipmentId}
+                onSelectShipment={setSelectedShipmentId}
+                onOpenSimulator={() => setActiveTab('simulator')}
               />
             </div>
 
-            {/* 6. Bottom Panel — Selected Shipment, Route Comparison, Timeline */}
+            {/* 6. Bottom Panel — Selected Vehicle & Warehouse Intelligence */}
             <IndiaBottomPanel
               selectedShipment={selectedShipment}
               recovery={recovery}
               nodes={nodes}
               isDisrupted={isDisrupted}
+              selectedWarehouseId={selectedWarehouseId}
             />
           </div>
         )}
@@ -285,14 +287,16 @@ export default function App() {
           />
         )}
 
-        {/* Secondary View: Scenario Simulator */}
+        {/* Secondary View: Scenario Simulator (What-If Experimentation) */}
         {activeTab === 'simulator' && (
           <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
             <div className="max-w-4xl mx-auto space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Quantum Logistics Scenario Simulator</h2>
-                  <p className="text-xs text-slate-500">Test real situations: Road Closures, Accidents, Extreme Weather, Capacity Drops.</p>
+                  <p className="text-xs text-slate-500">
+                    What-if simulation on FirstMile network: Road Closures, Collisions, Extreme Weather, Capacity Drops.
+                  </p>
                 </div>
                 <button
                   type="button"

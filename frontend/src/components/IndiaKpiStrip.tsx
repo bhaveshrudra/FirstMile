@@ -1,11 +1,13 @@
 import React from 'react';
 import { ControlTowerKpis } from '../services/indiaLogisticsService';
 import {
-  Users,
+  Building2,
   Box,
   Truck,
-  FileText,
+  PackageCheck,
+  TrendingUp,
   AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface IndiaKpiStripProps {
@@ -15,25 +17,7 @@ interface IndiaKpiStripProps {
 export const IndiaKpiStrip: React.FC<IndiaKpiStripProps> = ({ kpis }) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 px-3 py-1.5 bg-slate-50 border-b border-slate-200 shrink-0 select-none">
-      {/* 1. Suppliers */}
-      <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
-          <Users className="w-3.5 h-3.5" />
-        </div>
-        <div className="min-w-0">
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
-            Suppliers
-          </span>
-          <div className="flex items-baseline gap-1">
-            <span className="text-sm font-black text-slate-900 font-mono">
-              {kpis.suppliers}
-            </span>
-            <span className="text-[9px] text-emerald-600 font-medium">↑ 0%</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Warehouses */}
+      {/* 1. Warehouses: 10 (Total Cap: 8,850 | Load: 29.7%) */}
       <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
         <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
           <Box className="w-3.5 h-3.5" />
@@ -46,54 +30,102 @@ export const IndiaKpiStrip: React.FC<IndiaKpiStripProps> = ({ kpis }) => {
             <span className="text-sm font-black text-slate-900 font-mono">
               {kpis.warehouses}
             </span>
-            <span className="text-[9px] text-emerald-600 font-medium">↑ 0%</span>
+            <span className="text-[9px] text-slate-500 font-medium font-mono">
+              Cap: {kpis.totalWarehouseCapacityUnits?.toLocaleString() || '8,850'}
+            </span>
           </div>
+          <span className="text-[8.5px] text-emerald-600 font-semibold block leading-tight">
+            Avg Load: {kpis.warehouseUtilizationPct}% (2,630 U)
+          </span>
         </div>
       </div>
 
-      {/* 3. Active Shipments */}
-      {/* 3. Active Shipments */}
+      {/* 2. Live Fleet: 15 In Transit (Cap: 1,490) */}
       <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
         <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
           <Truck className="w-3.5 h-3.5" />
         </div>
         <div className="min-w-0">
           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
-            Active Shipments
-          </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-sm font-black text-slate-900 font-mono">
-              {kpis.activeShipments}
-            </span>
-            <span className="text-[9px] text-slate-500 font-mono flex items-center gap-1">
-              <span className="text-emerald-600 font-bold">● {kpis.onTimeShipments}</span>
-              {kpis.delayedShipments > 0 && (
-                <span className="text-amber-600 font-bold">● {kpis.delayedShipments} Del</span>
-              )}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Orders */}
-      <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-          <FileText className="w-3.5 h-3.5" />
-        </div>
-        <div className="min-w-0">
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
-            Orders
+            Live Fleet
           </span>
           <div className="flex items-baseline gap-1">
             <span className="text-sm font-black text-slate-900 font-mono">
-              {kpis.orders}
+              {kpis.vehiclesInTransit}
             </span>
-            <span className="text-[9px] text-emerald-600 font-medium">↑ 0%</span>
+            <span className="text-[9px] text-emerald-600 font-semibold">
+              ● In Transit
+            </span>
           </div>
+          <span className="text-[8.5px] text-slate-500 font-mono block leading-tight">
+            Cap: {kpis.totalFleetCapacityUnits?.toLocaleString() || '1,490'} Units
+          </span>
         </div>
       </div>
 
-      {/* 5. Active Disruptions */}
+      {/* 3. Fleet Utilization: 73.0% (1,088 Units Held) */}
+      <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
+        <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+          <TrendingUp className="w-3.5 h-3.5" />
+        </div>
+        <div className="min-w-0">
+          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
+            Fleet Utilization
+          </span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-sm font-black text-slate-900 font-mono">
+              {kpis.fleetUtilizationPct}%
+            </span>
+            <span className="text-[9px] text-emerald-600 font-bold">Optimal</span>
+          </div>
+          <span className="text-[8.5px] text-slate-500 font-mono block leading-tight">
+            {kpis.totalCapacityHeldUnits?.toLocaleString() || '1,088'} Held
+          </span>
+        </div>
+      </div>
+
+      {/* 4. Product: 1 (Medical Supply Kit) */}
+      <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
+        <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+          <PackageCheck className="w-3.5 h-3.5" />
+        </div>
+        <div className="min-w-0">
+          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
+            Product SKU
+          </span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-xs font-black text-slate-900 truncate max-w-[90px]">
+              {kpis.productName || 'Medical Supply Kit'}
+            </span>
+          </div>
+          <span className="text-[8.5px] text-slate-500 font-mono block leading-tight">
+            1 Standard SKU
+          </span>
+        </div>
+      </div>
+
+      {/* 5. Businesses: 6 (BIZ01–BIZ06) */}
+      <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
+        <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+          <Building2 className="w-3.5 h-3.5" />
+        </div>
+        <div className="min-w-0">
+          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
+            Businesses
+          </span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-sm font-black text-slate-900 font-mono">
+              {kpis.businesses}
+            </span>
+            <span className="text-[9px] text-slate-500 font-mono">Clients</span>
+          </div>
+          <span className="text-[8.5px] text-slate-500 font-mono block leading-tight">
+            BIZ01 – BIZ06
+          </span>
+        </div>
+      </div>
+
+      {/* 6. Active Disruptions: 0 in Live Mode */}
       <div
         className={`p-2 rounded-xl border shadow-2xs flex items-center gap-2.5 transition ${
           kpis.activeDisruptions > 0
@@ -105,10 +137,14 @@ export const IndiaKpiStrip: React.FC<IndiaKpiStripProps> = ({ kpis }) => {
           className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
             kpis.activeDisruptions > 0
               ? 'bg-rose-500 text-white animate-pulse'
-              : 'bg-slate-100 text-slate-500'
+              : 'bg-emerald-50 text-emerald-600'
           }`}
         >
-          <AlertTriangle className="w-3.5 h-3.5" />
+          {kpis.activeDisruptions > 0 ? (
+            <AlertTriangle className="w-3.5 h-3.5" />
+          ) : (
+            <CheckCircle2 className="w-3.5 h-3.5" />
+          )}
         </div>
         <div className="min-w-0">
           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
@@ -117,33 +153,22 @@ export const IndiaKpiStrip: React.FC<IndiaKpiStripProps> = ({ kpis }) => {
           <div className="flex items-baseline gap-1">
             <span
               className={`text-sm font-black font-mono ${
-                kpis.activeDisruptions > 0 ? 'text-rose-700' : 'text-slate-800'
+                kpis.activeDisruptions > 0 ? 'text-rose-700' : 'text-slate-900'
               }`}
             >
               {kpis.activeDisruptions}
             </span>
-            {kpis.activeDisruptions > 0 && (
-              <span className="text-[9px] text-rose-600 font-bold">● High</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 6. Network Health */}
-      <div className="bg-white p-2 rounded-xl border border-slate-200/90 shadow-2xs flex items-center gap-2.5">
-        <div className="relative w-7 h-7 rounded-full border-2 border-emerald-500 flex items-center justify-center font-bold font-mono text-[9px] text-emerald-700 shrink-0">
-          {kpis.networkHealthPct}%
-        </div>
-        <div className="min-w-0">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-            Network Health
-          </span>
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span className="text-xs font-bold text-slate-800">
-              {kpis.networkHealthPct >= 90 ? 'Optimal' : 'Healthy'}
+            <span
+              className={`text-[9px] font-bold ${
+                kpis.activeDisruptions > 0 ? 'text-rose-600' : 'text-emerald-600'
+              }`}
+            >
+              ● {kpis.activeDisruptions > 0 ? 'Action Req' : 'Operational'}
             </span>
           </div>
+          <span className="text-[8.5px] text-slate-500 font-mono block leading-tight">
+            {kpis.networkHealthPct}% Health
+          </span>
         </div>
       </div>
     </div>

@@ -1,8 +1,18 @@
 /**
  * India Logistics Dataset Service
- * Multimodal Logistics Network with Multi-Junction Branching Vectors
- * Aligned with logistics_digital_twin_datasets.xlsx and situation digital twin scenarios.
+ * Normalized FirstMile Source of Truth:
+ * 10 Warehouses | 15 In-Transit Vehicles | 1 Product (Medical Supply Kit) | 6 Businesses (BIZ01-BIZ06)
  */
+
+import {
+  WAREHOUSE_RECORDS,
+  VEHICLE_TELEMETRY_RECORDS,
+  NETWORK_FLOWS,
+  FIRSTMILE_LIVE_KPIS,
+  WAREHOUSE_MAP_BY_ID,
+  VehicleType,
+  BusinessId,
+} from './firstMileData';
 
 export type LogisticsNodeType = 'supplier' | 'warehouse' | 'customer' | 'junction';
 
@@ -14,6 +24,12 @@ export interface LogisticsNode {
   lat: number;
   lon: number;
   capacity?: number;
+  inventory?: number;
+  currentLoad?: number;
+  loadCategory?: 'LOW LOAD' | 'NORMAL' | 'HIGH LOAD';
+  address?: string;
+  product?: string;
+  status?: string;
   isJunction?: boolean;
 }
 
@@ -25,25 +41,41 @@ export interface LogisticsRoute {
   distanceKm: number;
   estTimeHr: number;
   status: 'active' | 'disrupted' | 'impacted' | 'recommended' | 'candidate';
-  isAlternate?: boolean; // Hidden during normal state, revealed during recovery
+  isAlternate?: boolean;
   candidateGroup?: 'A' | 'B';
+  vehicleNo?: string;
+  flowLabel?: string;
+  businessId?: string;
 }
 
 export interface MovingShipment {
-  id: string;
+  id: string; // Vehicle No (e.g., TS09AB1001)
+  vehicleNo: string;
   orderId: string;
-  sku: string;
-  quantity: number;
-  fromId: string;
-  toId: string;
+  sku: string; // Medical Supply Kit
+  product: string;
+  quantity: number; // Capacity held
+  capacityHeld: number;
+  totalCapacity: number;
+  utilization: number;
+  vehicleType: VehicleType;
+  businessId: BusinessId;
+  fromId: string; // From warehouse ID
+  toId: string; // To warehouse ID
+  fromAddress: string;
+  toAddress: string;
+  lastUpdatedLocation: string;
+  lastUpdatedTime: string;
   currentRouteId: string;
-  routePath: string[]; // sequence of node IDs including junctions
-  alternatePath?: string[]; // new sequence of node IDs through bypass junctions
+  routePath: string[];
+  alternatePath?: string[];
   status: 'IN_TRANSIT' | 'DELAYED' | 'REROUTED' | 'DELIVERED';
   eta: string;
-  progress: number; // 0.0 to 1.0 along route
+  progress: number;
   isAffected: boolean;
-  bearing?: number; // heading angle in degrees for direction indicator
+  bearing: number;
+  lat: number;
+  lon: number;
 }
 
 export interface DisruptionAlert {
@@ -52,8 +84,8 @@ export interface DisruptionAlert {
   disruptionType: string;
   location: string;
   description: string;
-  severity: number; // 1-5 from real dataset
-  capacityImpact: string; // e.g. "100% reduction", "60% reduction"
+  severity: number;
+  capacityImpact: string;
   affectedShipmentsCount: number;
   affectedRoutesCount: number;
   status: 'ACTIVE' | 'RESOLVED';
@@ -61,7 +93,7 @@ export interface DisruptionAlert {
   blockedRouteName: string;
   fromCity: string;
   toCity: string;
-  coordinates: [number, number]; // [lat, lon] for Leaflet popup placement
+  coordinates: [number, number];
 }
 
 export interface RecoveryRecommendation {
@@ -88,14 +120,26 @@ export interface SimulationStep {
 }
 
 export interface ControlTowerKpis {
-  suppliers: number;
   warehouses: number;
+  vehiclesInTransit: number;
+  products: number;
+  productName: string;
+  businesses: number;
+  totalInventoryUnits: number;
+  totalWarehouseCapacityUnits: number;
+  warehouseUtilizationPct: number;
+  totalCapacityHeldUnits: number;
+  totalFleetCapacityUnits: number;
+  fleetUtilizationPct: number;
+  activeDisruptions: number;
+  networkStatus: 'OPERATIONAL' | 'DEGRADED';
+  networkHealthPct: number;
+  // Backward compatibility fields
+  suppliers: number;
   activeShipments: number;
   onTimeShipments: number;
   delayedShipments: number;
   orders: number;
-  activeDisruptions: number;
-  networkHealthPct: number;
 }
 
 export type ScenarioId =
@@ -117,500 +161,460 @@ export interface ScenarioDefinition {
   primarySelectedShipmentId: string;
 }
 
-// 1. Logistics Network Nodes: Major Hubs + Intermediate Junctions
-export const INDIA_NODES: LogisticsNode[] = [
-  // Major Warehouses (from dataset: WH-001, WH-002, WH-003, WH-005)
-  { id: 'WH-001', name: 'Nagpur Central Hub', city: 'Nagpur', type: 'warehouse', lat: 21.1458, lon: 79.0882, capacity: 10000 },
-  { id: 'WH-002', name: 'Hyderabad Central DC', city: 'Hyderabad', type: 'warehouse', lat: 17.3850, lon: 78.4867, capacity: 8500 },
-  { id: 'WH-003', name: 'Bengaluru South DC', city: 'Bengaluru', type: 'warehouse', lat: 12.9716, lon: 77.5946, capacity: 9000 },
-  { id: 'WH-005', name: 'Delhi North Hub', city: 'Delhi', type: 'warehouse', lat: 28.6139, lon: 77.2090, capacity: 7000 },
-
-  // Suppliers & Customers (from dataset: SUP-001, SUP-002, CUST-001)
-  { id: 'SUP-001', name: 'Northstar Components', city: 'Mumbai', type: 'supplier', lat: 19.0760, lon: 72.8777, capacity: 1500 },
-  { id: 'SUP-002', name: 'Harborline Gateway', city: 'Chennai', type: 'supplier', lat: 13.0827, lon: 80.2707, capacity: 1800 },
-  { id: 'CUST-001', name: 'Metro Retail Depot', city: 'Kolkata', type: 'customer', lat: 22.5726, lon: 88.3639, capacity: 1200 },
-
-  // Intermediate Branching Junctions (Creating realistic multi-vector corridors)
-  // Primary Highway Corridor (NH-44 / NH-16)
-  { id: 'J1', name: 'J1 (Adilabad Transit)', city: 'Adilabad', type: 'junction', lat: 19.6641, lon: 78.5320, isJunction: true },
-  { id: 'J-JA', name: 'J-JA (Jadcherla Transit)', city: 'Jadcherla', type: 'junction', lat: 16.7600, lon: 78.1400, isJunction: true },
-  { id: 'J2', name: 'J2 (Kurnool Interchange)', city: 'Kurnool', type: 'junction', lat: 15.8281, lon: 78.0373, isJunction: true },
-
-  // Candidate Alternate A (Eastern Coastal Bypass via Vijayawada & Chennai)
-  { id: 'J3', name: 'J3 (Vijayawada Expressway)', city: 'Vijayawada', type: 'junction', lat: 16.5062, lon: 80.6480, isJunction: true },
-  { id: 'J4', name: 'J4 (Nellore Coastal Waypoint)', city: 'Nellore', type: 'junction', lat: 14.4426, lon: 79.9865, isJunction: true },
-  { id: 'J5', name: 'J5 (Kanchipuram South Interchange)', city: 'Kanchipuram', type: 'junction', lat: 12.8342, lon: 79.7036, isJunction: true },
-
-  // Candidate Alternate B (Western Corridor via Solapur & Kalaburagi)
-  { id: 'J6', name: 'J6 (Nanded Interchange)', city: 'Nanded', type: 'junction', lat: 19.1383, lon: 77.3210, isJunction: true },
-  { id: 'J7', name: 'J7 (Solapur Western Junction)', city: 'Solapur', type: 'junction', lat: 17.6599, lon: 75.9064, isJunction: true },
-  { id: 'J8', name: 'J8 (Kalaburagi Transit)', city: 'Kalaburagi', type: 'junction', lat: 17.3297, lon: 76.8343, isJunction: true },
-  { id: 'J9', name: 'J9 (Anantapur Southern Point)', city: 'Anantapur', type: 'junction', lat: 14.6819, lon: 77.6006, isJunction: true },
-
-  // Trunk Highway Waypoints across Central & North India
-  { id: 'J10', name: 'J10 (Gwalior Interchange)', city: 'Gwalior', type: 'junction', lat: 26.2183, lon: 78.1828, isJunction: true },
-  { id: 'J11', name: 'J11 (Bhopal Transit)', city: 'Bhopal', type: 'junction', lat: 23.2599, lon: 77.4126, isJunction: true },
-  { id: 'J12', name: 'J12 (Nashik Waypoint)', city: 'Nashik', type: 'junction', lat: 19.9975, lon: 73.7898, isJunction: true },
-  { id: 'J13', name: 'J13 (Raipur Gateway)', city: 'Raipur', type: 'junction', lat: 21.2514, lon: 81.6296, isJunction: true },
+// 1. Normalized Facilities & Waypoints (10 Real Warehouses + Transit Junctions)
+export const FIRSTMILE_NODES: LogisticsNode[] = [
+  ...WAREHOUSE_RECORDS.map((w) => ({
+    id: w.id,
+    name: w.name,
+    city: w.city,
+    type: 'warehouse' as LogisticsNodeType,
+    lat: w.lat,
+    lon: w.lon,
+    capacity: w.capacity,
+    inventory: w.inventory,
+    currentLoad: w.currentLoad,
+    loadCategory: w.loadCategory,
+    address: w.address,
+    product: w.product,
+    status: w.status,
+  })),
+  // Transit Bypass Junctions
+  { id: 'J-KURNOOL', name: 'Kurnool Transit Junction (NH-44)', city: 'Kurnool', type: 'junction', lat: 15.8281, lon: 78.0373, isJunction: true },
+  { id: 'J-NELLORE', name: 'Nellore Coastal Waypoint (NH-16)', city: 'Nellore', type: 'junction', lat: 14.4426, lon: 79.9865, isJunction: true },
+  { id: 'J-SOLAPUR', name: 'Solapur Western Junction (NH-65)', city: 'Solapur', type: 'junction', lat: 17.6599, lon: 75.9064, isJunction: true },
+  { id: 'J-NANDED', name: 'Nanded Hub Waypoint (NH-161)', city: 'Nanded', type: 'junction', lat: 19.1383, lon: 77.3210, isJunction: true },
 ];
 
-// 2. Multimodal Transport Corridors (Multiple vectors with intermediate junctions)
-export const INITIAL_ROUTES: LogisticsRoute[] = [
-  // Primary Trunk Lines (passing through realistic highway junctions)
-  { id: 'R-001A', name: 'Mumbai ➔ J12 (Nashik)', fromId: 'SUP-001', toId: 'J12', distanceKm: 165, estTimeHr: 3.5, status: 'active' },
-  { id: 'R-001B', name: 'J12 (Nashik) ➔ Nagpur (NH-53)', fromId: 'J12', toId: 'WH-001', distanceKm: 655, estTimeHr: 11.0, status: 'active' },
+// Alias for backwards compatibility
+export const INDIA_NODES = FIRSTMILE_NODES;
 
-  { id: 'R-004A', name: 'Delhi ➔ J10 (Gwalior)', fromId: 'WH-005', toId: 'J10', distanceKm: 340, estTimeHr: 5.5, status: 'active' },
-  { id: 'R-004B', name: 'J10 (Gwalior) ➔ J11 (Bhopal)', fromId: 'J10', toId: 'J11', distanceKm: 420, estTimeHr: 7.0, status: 'active' },
-  { id: 'R-004C', name: 'J11 (Bhopal) ➔ Nagpur (NH-46)', fromId: 'J11', toId: 'WH-001', distanceKm: 350, estTimeHr: 5.5, status: 'active' },
+// 2. Normalized Logistics Network Flows (15 Active Corridors)
+export const FIRSTMILE_ROUTES: LogisticsRoute[] = NETWORK_FLOWS.map((f) => {
+  const fromWh = WAREHOUSE_MAP_BY_ID.get(f.fromWarehouseId)!;
+  const toWh = WAREHOUSE_MAP_BY_ID.get(f.toWarehouseId)!;
+  const dist = Math.round(
+    Math.hypot((toWh.lat - fromWh.lat) * 111, (toWh.lon - fromWh.lon) * 105)
+  );
+  return {
+    id: f.id,
+    name: `${f.flowLabel} (${f.vehicleNo})`,
+    fromId: f.fromWarehouseId,
+    toId: f.toWarehouseId,
+    distanceKm: dist,
+    estTimeHr: +(dist / 55).toFixed(1),
+    status: 'active' as const,
+    vehicleNo: f.vehicleNo,
+    flowLabel: f.flowLabel,
+    businessId: f.businessId,
+  };
+});
 
-  { id: 'R-003A', name: 'Nagpur ➔ J13 (Raipur)', fromId: 'WH-001', toId: 'J13', distanceKm: 285, estTimeHr: 5.0, status: 'active' },
-  { id: 'R-003B', name: 'J13 (Raipur) ➔ Kolkata (NH-53)', fromId: 'J13', toId: 'CUST-001', distanceKm: 815, estTimeHr: 14.5, status: 'active' },
-
-  // Central Corridor (Nagpur ➔ Hyderabad via J1 Adilabad)
-  { id: 'R-002A', name: 'Nagpur ➔ J1 (Adilabad)', fromId: 'WH-001', toId: 'J1', distanceKm: 240, estTimeHr: 4.2, status: 'active' },
-  { id: 'R-002B', name: 'J1 (Adilabad) ➔ Hyderabad', fromId: 'J1', toId: 'WH-002', distanceKm: 260, estTimeHr: 5.0, status: 'active' },
-
-  // Southern Corridor (Warehouse WH-002 ➔ J-JA Jadcherla ➔ J2 Kurnool ➔ Bengaluru)
-  { id: 'R-020', name: 'Hyderabad ➔ J-JA (Jadcherla)', fromId: 'WH-002', toId: 'J-JA', distanceKm: 85, estTimeHr: 1.8, status: 'active' },
-  { id: 'R-021A', name: 'RT-007 / R-021A (Jadcherla ➔ Kurnool)', fromId: 'J-JA', toId: 'J2', distanceKm: 135, estTimeHr: 2.7, status: 'active' },
-  { id: 'R-021B', name: 'J2 (Kurnool) ➔ Bengaluru (NH-44)', fromId: 'J2', toId: 'WH-003', distanceKm: 350, estTimeHr: 6.0, status: 'active' },
-
-  // Candidate Bypass A (Eastern Coastal via Vijayawada & Chennai)
-  { id: 'R-005A', name: 'Hyderabad ➔ J3 (Vijayawada)', fromId: 'WH-002', toId: 'J3', distanceKm: 275, estTimeHr: 4.8, status: 'recommended', isAlternate: true, candidateGroup: 'A' },
-  { id: 'R-005B', name: 'J3 (Vijayawada) ➔ J4 (Nellore)', fromId: 'J3', toId: 'J4', distanceKm: 280, estTimeHr: 5.0, status: 'recommended', isAlternate: true, candidateGroup: 'A' },
-  { id: 'R-005C', name: 'J4 (Nellore) ➔ Chennai (SUP-002)', fromId: 'J4', toId: 'SUP-002', distanceKm: 175, estTimeHr: 3.2, status: 'recommended', isAlternate: true, candidateGroup: 'A' },
-  { id: 'R-005D', name: 'Chennai ➔ J5 (Kanchipuram)', fromId: 'SUP-002', toId: 'J5', distanceKm: 75, estTimeHr: 1.5, status: 'recommended', isAlternate: true, candidateGroup: 'A' },
-  { id: 'R-005E', name: 'J5 (Kanchipuram) ➔ Bengaluru', fromId: 'J5', toId: 'WH-003', distanceKm: 275, estTimeHr: 5.0, status: 'recommended', isAlternate: true, candidateGroup: 'A' },
-
-  // Candidate Bypass B (Western Corridor via Solapur & Kalaburagi)
-  { id: 'R-007A', name: 'Nagpur ➔ J6 (Nanded)', fromId: 'WH-001', toId: 'J6', distanceKm: 290, estTimeHr: 5.5, status: 'candidate', isAlternate: true, candidateGroup: 'B' },
-  { id: 'R-007B', name: 'J6 (Nanded) ➔ J7 (Solapur)', fromId: 'J6', toId: 'J7', distanceKm: 240, estTimeHr: 4.8, status: 'candidate', isAlternate: true, candidateGroup: 'B' },
-  { id: 'R-007C', name: 'J7 (Solapur) ➔ J8 (Kalaburagi)', fromId: 'J7', toId: 'J8', distanceKm: 120, estTimeHr: 2.5, status: 'candidate', isAlternate: true, candidateGroup: 'B' },
-  { id: 'R-007D', name: 'Hyderabad ➔ J8 (Kalaburagi)', fromId: 'WH-002', toId: 'J8', distanceKm: 225, estTimeHr: 4.5, status: 'candidate', isAlternate: true, candidateGroup: 'B' },
-  { id: 'R-007E', name: 'J8 (Kalaburagi) ➔ J9 (Anantapur)', fromId: 'J8', toId: 'J9', distanceKm: 340, estTimeHr: 6.8, status: 'candidate', isAlternate: true, candidateGroup: 'B' },
-  { id: 'R-007F', name: 'J9 (Anantapur) ➔ Bengaluru', fromId: 'J9', toId: 'WH-003', distanceKm: 215, estTimeHr: 4.2, status: 'candidate', isAlternate: true, candidateGroup: 'B' },
-
-  // Scenario Detour Connectors
-  { id: 'R-008A', name: 'J12 (Nashik) ➔ J6 (Nanded Detour)', fromId: 'J12', toId: 'J6', distanceKm: 280, estTimeHr: 5.0, status: 'candidate', isAlternate: true, candidateGroup: 'A' },
-  { id: 'R-009A', name: 'J10 (Gwalior) ➔ J13 (Raipur Detour)', fromId: 'J10', toId: 'J13', distanceKm: 580, estTimeHr: 9.5, status: 'candidate', isAlternate: true, candidateGroup: 'A' },
-];
-
-// 3. Moving Shipments with realistic multi-junction paths (From Orders Shipments dataset)
-export const INITIAL_SHIPMENTS: MovingShipment[] = [
+// Candidate alternate corridors revealed during simulation recovery
+export const FIRSTMILE_ALTERNATE_ROUTES: LogisticsRoute[] = [
   {
-    id: 'SHP-5002',
-    orderId: 'ORD-1002',
-    sku: 'SKU-PK-01',
-    quantity: 500,
-    fromId: 'WH-001',
-    toId: 'WH-003',
-    currentRouteId: 'R-021A',
-    // Original path: Nagpur -> J1 -> Hyderabad -> J-JA (Jadcherla) -> Kurnool (J2) -> Bengaluru
-    routePath: ['WH-001', 'J1', 'WH-002', 'J-JA', 'J2', 'WH-003'],
-    // Recovery bypass: Hyderabad -> J3 -> J4 -> Chennai -> J5 -> Bengaluru
-    alternatePath: ['WH-001', 'J1', 'WH-002', 'J3', 'J4', 'SUP-002', 'J5', 'WH-003'],
-    status: 'IN_TRANSIT',
-    eta: '19:30 IST',
-    progress: 0.46,
-    isAffected: false,
+    id: 'ALT-COASTAL-01',
+    name: 'Hyderabad (WH02) ➔ Vijayawada (WH07) Coastal Bypass',
+    fromId: 'WH02',
+    toId: 'WH07',
+    distanceKm: 275,
+    estTimeHr: 4.8,
+    status: 'candidate',
+    isAlternate: true,
+    candidateGroup: 'A',
   },
   {
-    id: 'SHP-5001',
-    orderId: 'ORD-1001',
-    sku: 'SKU-EL-01',
-    quantity: 240,
-    fromId: 'SUP-001',
-    toId: 'WH-001',
-    currentRouteId: 'R-001B',
-    routePath: ['SUP-001', 'J12', 'WH-001'],
-    alternatePath: ['SUP-001', 'J12', 'J6', 'WH-001'],
-    status: 'IN_TRANSIT',
-    eta: '16:45 IST',
-    progress: 0.65,
-    isAffected: false,
+    id: 'ALT-COASTAL-02',
+    name: 'Vijayawada (WH07) ➔ Chennai North (WH03) Bypass',
+    fromId: 'WH07',
+    toId: 'WH03',
+    distanceKm: 430,
+    estTimeHr: 7.2,
+    status: 'candidate',
+    isAlternate: true,
+    candidateGroup: 'A',
   },
   {
-    id: 'SHP-5003',
-    orderId: 'ORD-1003',
-    sku: 'SKU-EL-02',
-    quantity: 180,
-    fromId: 'WH-005',
-    toId: 'WH-001',
-    currentRouteId: 'R-004B',
-    routePath: ['WH-005', 'J10', 'J11', 'WH-001'],
-    alternatePath: ['WH-005', 'J10', 'J13', 'WH-001'],
-    status: 'IN_TRANSIT',
-    eta: '18:10 IST',
-    progress: 0.35,
-    isAffected: false,
+    id: 'ALT-WESTERN-01',
+    name: 'Pune (WH10) ➔ Solapur (J-SOLAPUR) ➔ Hyderabad (WH01) Detour',
+    fromId: 'WH10',
+    toId: 'WH01',
+    distanceKm: 560,
+    estTimeHr: 9.5,
+    status: 'candidate',
+    isAlternate: true,
+    candidateGroup: 'B',
   },
   {
-    id: 'SHP-5004',
-    orderId: 'ORD-1004',
-    sku: 'SKU-MT-01',
-    quantity: 300,
-    fromId: 'WH-001',
-    toId: 'CUST-001',
-    currentRouteId: 'R-003A',
-    routePath: ['WH-001', 'J13', 'CUST-001'],
-    status: 'IN_TRANSIT',
-    eta: '22:30 IST',
-    progress: 0.82,
-    isAffected: false,
+    id: 'ALT-INLAND-01',
+    name: 'Vijayawada (WH07) ➔ Warangal (WH09) ➔ Visakhapatnam Detour',
+    fromId: 'WH07',
+    toId: 'WH09',
+    distanceKm: 210,
+    estTimeHr: 3.8,
+    status: 'candidate',
+    isAlternate: true,
+    candidateGroup: 'A',
   },
 ];
 
-// 4. SITUATIONAL SCENARIO DEFINITIONS (Direct from Excel Workbook)
+// Alias for backwards compatibility
+export const INITIAL_ROUTES: LogisticsRoute[] = [...FIRSTMILE_ROUTES, ...FIRSTMILE_ALTERNATE_ROUTES];
+
+// 3. Normalized In-Transit Fleet (15 Vehicles with Real Telemetry)
+export const FIRSTMILE_SHIPMENTS: MovingShipment[] = VEHICLE_TELEMETRY_RECORDS.map((v) => ({
+  id: v.vehicleNo,
+  vehicleNo: v.vehicleNo,
+  orderId: `ORD-${v.businessId}-${v.vehicleNo.slice(-4)}`,
+  sku: v.product,
+  product: v.product,
+  quantity: v.capacityHeld,
+  capacityHeld: v.capacityHeld,
+  totalCapacity: v.totalCapacity,
+  utilization: v.utilization,
+  vehicleType: v.vehicleType,
+  businessId: v.businessId,
+  fromId: v.fromWarehouseId,
+  toId: v.toWarehouseId,
+  fromAddress: v.fromAddress,
+  toAddress: v.toAddress,
+  lastUpdatedLocation: v.lastUpdatedLocation,
+  lastUpdatedTime: v.lastUpdatedTime,
+  currentRouteId: `FLOW-${v.vehicleNo}`,
+  routePath: [v.fromWarehouseId, v.toWarehouseId],
+  alternatePath: [v.fromWarehouseId, 'WH07', v.toWarehouseId],
+  status: 'IN_TRANSIT' as const,
+  eta: v.lastUpdatedTime.split(' ')[1] + ' IST',
+  progress: v.progress,
+  isAffected: false,
+  bearing: v.bearing,
+  lat: v.lat,
+  lon: v.lon,
+}));
+
+// Alias for backwards compatibility
+export const INITIAL_SHIPMENTS: MovingShipment[] = FIRSTMILE_SHIPMENTS;
+
+// 4. Situational Scenario Presets
 export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
-  // Scenario 1: NORMAL NETWORK
+  // Scenario 1: NORMAL (Primary Live Operational Network Mode)
   NORMAL: {
     id: 'NORMAL',
-    label: 'NORMAL NETWORK',
-    primarySelectedShipmentId: 'SHP-5002',
+    label: 'NORMAL NETWORK (OPERATIONAL)',
+    primarySelectedShipmentId: 'TS09AB1001',
     disruptions: [],
     recovery: {
-      title: 'Nominal Network Optimization',
-      corridor: 'All national transit corridors active',
+      title: 'Nominal Fleet & Warehouse Operation',
+      corridor: 'All 15 inter-facility flows operating nominally',
       travelTimeDelta: '0.0h',
       distanceDelta: '0 km',
       costDelta: '0%',
-      originalRouteDesc: 'Trunk corridors operational',
-      originalDistKm: 680,
-      originalTimeHr: 12.5,
-      recoveryRouteDesc: 'Standard scheduled dispatches',
-      recoveryDistKm: 680,
-      recoveryTimeHr: 12.5,
-      explanation: 'All routes and warehouse hubs operating within nominal parameters. No recovery action needed.',
-      viaJunctions: 'Nominal routing',
+      originalRouteDesc: 'Inter-facility scheduled flows active',
+      originalDistKm: 580,
+      originalTimeHr: 10.5,
+      recoveryRouteDesc: 'Scheduled standard transit',
+      recoveryDistKm: 580,
+      recoveryTimeHr: 10.5,
+      explanation: 'All 10 warehouses and 15 in-transit vehicles operating within nominal thresholds. 0 disruptions detected across digital twin network.',
+      viaJunctions: 'Nominal logistics flows',
       bypassCoords: [15.8281, 78.0373],
     },
     affectedShipmentIds: [],
     delayedProgressMap: {},
     routeStatuses: {
-      'R-001A': 'active',
-      'R-001B': 'active',
-      'R-004A': 'active',
-      'R-004B': 'active',
-      'R-004C': 'active',
-      'R-003A': 'active',
-      'R-003B': 'active',
-      'R-002A': 'active',
-      'R-002B': 'active',
-      'R-020': 'active',
-      'R-021A': 'active',
-      'R-021B': 'active',
-      'R-005A': 'candidate',
-      'R-005B': 'candidate',
-      'R-005C': 'candidate',
-      'R-005D': 'candidate',
-      'R-005E': 'candidate',
-      'R-007A': 'candidate',
-      'R-007B': 'candidate',
-      'R-007C': 'candidate',
-      'R-007D': 'candidate',
-      'R-007E': 'candidate',
-      'R-007F': 'candidate',
-      'R-008A': 'candidate',
-      'R-009A': 'candidate',
+      'FLOW-TS09AB1001': 'active',
+      'FLOW-TS10CD2045': 'active',
+      'FLOW-TN09EF3112': 'active',
+      'FLOW-TN12GH4488': 'active',
+      'FLOW-KA03JK5521': 'active',
+      'FLOW-KA05LM6702': 'active',
+      'FLOW-AP16NO7834': 'active',
+      'FLOW-AP31PQ8456': 'active',
+      'FLOW-TS12RS9107': 'active',
+      'FLOW-TS08TU1123': 'active',
+      'FLOW-MH12VW2234': 'active',
+      'FLOW-MH14XY3345': 'active',
+      'FLOW-TS07ZA4456': 'active',
+      'FLOW-TN11BC5567': 'active',
+      'FLOW-KA51DE6678': 'active',
+      'ALT-COASTAL-01': 'candidate',
+      'ALT-COASTAL-02': 'candidate',
+      'ALT-WESTERN-01': 'candidate',
+      'ALT-INLAND-01': 'candidate',
     },
   },
 
-  // Scenario 2: ROAD CLOSURE (DIS-002: RT-007 / R-021A)
+  // Scenario 2: ROAD CLOSURE (Simulated event on NH-44 south of Hyderabad)
   ROAD_CLOSURE: {
     id: 'ROAD_CLOSURE',
     label: 'ROAD CLOSURE (DIS-002)',
-    primarySelectedShipmentId: 'SHP-5002',
+    primarySelectedShipmentId: 'TS09AB1001',
     disruptions: [
       {
         id: 'DIS-002',
-        title: 'Route Blockage',
+        title: 'Route Blockage (NH-44 Sector)',
         disruptionType: 'Route Blockage',
-        location: 'NH-44 / RT-007 (Jadcherla ➔ Kurnool Sector)',
-        description: 'Port access route blocked due to landslide; shipments require an alternate path.',
+        location: 'NH-44 / Kurnool Corridor (Shamshabad ➔ Manali Corridor)',
+        description: 'Transit corridor blocked due to sudden landslide near Kurnool; vehicle TS09AB1001 stalled.',
         severity: 4,
-        capacityImpact: '100% reduction',
+        capacityImpact: '100% corridor blockage',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'R-021A',
-        blockedRouteName: 'RT-007 / R-021A',
-        fromCity: 'Jadcherla',
-        toCity: 'Kurnool',
-        coordinates: [16.294, 78.0886], // Midpoint between J-JA Jadcherla and J2 Kurnool
+        blockedRouteId: 'FLOW-TS09AB1001',
+        blockedRouteName: 'FLOW-TS09AB1001 (Shamshabad ➔ Manali)',
+        fromCity: 'Hyderabad',
+        toCity: 'Chennai',
+        coordinates: [15.8281, 78.0373], // Kurnool
       },
     ],
     recovery: {
-      title: 'Reroute via J3 (Vijayawada) ➔ J4 (Nellore) ➔ Chennai ➔ J5',
-      corridor: 'Hyderabad ➔ J3 ➔ J4 ➔ Chennai ➔ J5 ➔ Bengaluru',
-      travelTimeDelta: '+3.2h',
-      distanceDelta: '+210 km',
-      costDelta: '+12%',
-      originalRouteDesc: 'WH-001 ➔ J1 ➔ WH-002 ➔ J-JA ➔ J2 (Kurnool) ➔ WH-003',
-      originalDistKm: 680,
-      originalTimeHr: 12.5,
-      recoveryRouteDesc: 'WH-002 ➔ J3 ➔ J4 ➔ Chennai ➔ J5 ➔ WH-003',
-      recoveryDistKm: 890,
-      recoveryTimeHr: 15.7,
-      explanation: 'AI quantum swarm route optimizer reallocated consignment SHP-5002 via Eastern Coastal Bypass, completely avoiding landslide sector J2.',
-      viaJunctions: 'J3 (Vijayawada), J4 (Nellore), J5 (Kanchipuram)',
-      bypassCoords: [14.4426, 80.8], // J4 Nellore Waypoint
+      title: 'Reroute via Vijayawada Hub (WH07) Eastern Bypass',
+      corridor: 'Hyderabad (WH02) ➔ Vijayawada (WH07) ➔ Chennai North (WH03)',
+      travelTimeDelta: '+2.8h',
+      distanceDelta: '+165 km',
+      costDelta: '+9.4%',
+      originalRouteDesc: 'WH02 (Hyderabad South) ➔ NH-44 Kurnool ➔ WH03 (Chennai)',
+      originalDistKm: 630,
+      originalTimeHr: 11.5,
+      recoveryRouteDesc: 'WH02 ➔ WH07 (Vijayawada Hub) ➔ WH03 (Chennai North)',
+      recoveryDistKm: 795,
+      recoveryTimeHr: 14.3,
+      explanation: 'Quantum Swarm optimizer reallocated vehicle TS09AB1001 via Eastern Corridor (WH07 Vijayawada Hub), completely avoiding the blocked NH-44 landslide sector.',
+      viaJunctions: 'WH07 (Vijayawada Hub), J-NELLORE (Nellore Coastal Waypoint)',
+      bypassCoords: [16.5414, 80.7981], // WH07 Vijayawada
     },
-    affectedShipmentIds: ['SHP-5002'],
-    delayedProgressMap: { 'SHP-5002': 0.46 },
+    affectedShipmentIds: ['TS09AB1001'],
+    delayedProgressMap: { 'TS09AB1001': 0.35 },
     routeStatuses: {
-      'R-020': 'active', // Normal blue (WH-002 ➔ J-JA)
-      'R-021A': 'disrupted', // Exact blocked edge (red dashed pulse)
-      'R-021B': 'active', // Downstream normal blue (J2 ➔ Bengaluru)
-      'R-005A': 'recommended',
-      'R-005B': 'recommended',
-      'R-005C': 'recommended',
-      'R-005D': 'recommended',
-      'R-005E': 'recommended',
-      'R-007A': 'candidate',
-      'R-007B': 'candidate',
+      'FLOW-TS09AB1001': 'disrupted',
+      'ALT-COASTAL-01': 'recommended',
+      'ALT-COASTAL-02': 'recommended',
     },
   },
 
-  // Scenario 3: SEVERE ACCIDENT (DIS-006: RT-004 / R-001B)
+  // Scenario 3: SEVERE ACCIDENT (DIS-006 on Western Corridor)
   ACCIDENT: {
     id: 'ACCIDENT',
     label: 'SEVERE ACCIDENT (DIS-006)',
-    primarySelectedShipmentId: 'SHP-5001',
+    primarySelectedShipmentId: 'MH12VW2234',
     disruptions: [
       {
         id: 'DIS-006',
-        title: 'Vehicle Breakdown / Collision',
-        disruptionType: 'Vehicle Breakdown',
-        location: 'NH-53 / Route R-001B (Nashik ➔ Nagpur)',
-        description: 'Half of planned route capacity unavailable during vehicle breakdown / major collision.',
+        title: 'Corridor Collision / Breakdown',
+        disruptionType: 'Vehicle Breakdown / Collision',
+        location: 'NH-65 (Chakan Pune ➔ Jeedimetla Hyderabad)',
+        description: 'Major multivehicle collision closed express lane; heavy vehicle MH12VW2234 delayed.',
         severity: 3,
-        capacityImpact: '50% reduction',
-        affectedShipmentsCount: 1,
-        affectedRoutesCount: 2,
-        status: 'ACTIVE',
-        blockedRouteId: 'R-001B',
-        blockedRouteName: 'RT-004 / R-001B (Nashik ➔ Nagpur)',
-        fromCity: 'Nashik',
-        toCity: 'Nagpur',
-        coordinates: [19.9975, 73.7898], // J12 Nashik Waypoint
-      },
-    ],
-    recovery: {
-      title: 'Reroute via J12 (Nashik) ➔ J6 (Nanded) ➔ Nagpur',
-      corridor: 'Mumbai ➔ J12 ➔ J6 (Nanded) ➔ Nagpur',
-      travelTimeDelta: '+2.1h',
-      distanceDelta: '+125 km',
-      costDelta: '+8%',
-      originalRouteDesc: 'SUP-001 ➔ J12 (Nashik) ➔ WH-001 (Nagpur)',
-      originalDistKm: 820,
-      originalTimeHr: 14.5,
-      recoveryRouteDesc: 'SUP-001 ➔ J12 ➔ J6 (Nanded) ➔ WH-001 (Nagpur)',
-      recoveryDistKm: 945,
-      recoveryTimeHr: 16.6,
-      explanation: 'Quantum swarm detected NH-53 blockage at Nashik and diverted consignment SHP-5001 south via Nanded transit hub (J6).',
-      viaJunctions: 'J12 (Nashik), J6 (Nanded Transit)',
-      bypassCoords: [19.1383, 77.3210], // J6 Nanded
-    },
-    affectedShipmentIds: ['SHP-5001'],
-    delayedProgressMap: { 'SHP-5001': 0.28 },
-    routeStatuses: {
-      'R-001B': 'disrupted',
-      'R-001A': 'impacted',
-      'R-008A': 'recommended',
-      'R-007A': 'recommended',
-    },
-  },
-
-  // Scenario 4: EXTREME WEATHER (DIS-003: RT-009 / R-004B)
-  EXTREME_WEATHER: {
-    id: 'EXTREME_WEATHER',
-    label: 'EXTREME WEATHER (DIS-003)',
-    primarySelectedShipmentId: 'SHP-5003',
-    disruptions: [
-      {
-        id: 'DIS-003',
-        title: 'Extreme Weather',
-        disruptionType: 'Extreme Weather',
-        location: 'NH-44 / Route R-004B (Gwalior ➔ Bhopal)',
-        description: 'Severe weather reduces route capacity by 60 percent. Torrential rains in central corridor.',
-        severity: 4,
-        capacityImpact: '60% reduction',
-        affectedShipmentsCount: 1,
-        affectedRoutesCount: 2,
-        status: 'ACTIVE',
-        blockedRouteId: 'R-004B',
-        blockedRouteName: 'RT-009 / R-004B (Gwalior ➔ Bhopal)',
-        fromCity: 'Gwalior',
-        toCity: 'Bhopal',
-        coordinates: [26.2183, 78.1828], // J10 Gwalior
-      },
-    ],
-    recovery: {
-      title: 'Reroute via J10 (Gwalior) ➔ J13 (Raipur) ➔ Nagpur',
-      corridor: 'Delhi ➔ J10 ➔ J13 (Raipur) ➔ Nagpur',
-      travelTimeDelta: '+3.8h',
-      distanceDelta: '+240 km',
-      costDelta: '+14%',
-      originalRouteDesc: 'WH-005 ➔ J10 ➔ J11 ➔ WH-001',
-      originalDistKm: 1110,
-      originalTimeHr: 18.0,
-      recoveryRouteDesc: 'WH-005 ➔ J10 ➔ J13 ➔ WH-001',
-      recoveryDistKm: 1350,
-      recoveryTimeHr: 21.8,
-      explanation: 'Severe cyclonic rainfall flooded Gwalior-Bhopal section. Swarm optimizer diverted SHP-5003 east via Raipur Gateway (J13).',
-      viaJunctions: 'J10 (Gwalior), J13 (Raipur Gateway)',
-      bypassCoords: [21.2514, 81.6296], // J13 Raipur
-    },
-    affectedShipmentIds: ['SHP-5003'],
-    delayedProgressMap: { 'SHP-5003': 0.35 },
-    routeStatuses: {
-      'R-004B': 'disrupted',
-      'R-004C': 'impacted',
-      'R-009A': 'recommended',
-      'R-003A': 'recommended',
-    },
-  },
-
-  // Scenario 5: CAPACITY REDUCTION (DIS-004: WH-002)
-  CAPACITY_REDUCTION: {
-    id: 'CAPACITY_REDUCTION',
-    label: 'CAPACITY REDUCTION (DIS-004)',
-    primarySelectedShipmentId: 'SHP-5002',
-    disruptions: [
-      {
-        id: 'DIS-004',
-        title: 'Warehouse Disruption',
-        disruptionType: 'Warehouse Disruption',
-        location: 'WH-002 (Hyderabad Central DC)',
-        description: 'Temporary warehouse operating capacity reduction of 40% due to automated sorting failure.',
-        severity: 3,
-        capacityImpact: '40% reduction',
-        affectedShipmentsCount: 1,
-        affectedRoutesCount: 2,
-        status: 'ACTIVE',
-        blockedRouteId: 'R-002B',
-        blockedRouteName: 'Hub WH-002 / R-002B (Hyderabad Central DC)',
-        fromCity: 'Adilabad',
-        toCity: 'Hyderabad',
-        coordinates: [17.3850, 78.4867], // WH-002 Hyderabad
-      },
-    ],
-    recovery: {
-      title: 'Cross-Dock Reallocation via J6 ➔ J7 ➔ J8 ➔ J9 (Bypass Hyderabad)',
-      corridor: 'Nagpur ➔ J6 ➔ J7 ➔ J8 ➔ J9 ➔ Bengaluru',
-      travelTimeDelta: '+1.8h',
-      distanceDelta: '+90 km',
-      costDelta: '+6%',
-      originalRouteDesc: 'WH-001 ➔ J1 ➔ WH-002 ➔ J2 ➔ WH-003',
-      originalDistKm: 1070,
-      originalTimeHr: 19.7,
-      recoveryRouteDesc: 'WH-001 ➔ J6 ➔ J7 ➔ J8 ➔ J9 ➔ WH-003',
-      recoveryDistKm: 1160,
-      recoveryTimeHr: 21.5,
-      explanation: 'Direct cross-warehouse reallocation bypassing congested Hyderabad DC via western transit corridor (Nanded-Solapur-Kalaburagi-Anantapur).',
-      viaJunctions: 'J6 (Nanded), J7 (Solapur), J8 (Kalaburagi), J9 (Anantapur)',
-      bypassCoords: [17.6599, 75.9064], // J7 Solapur
-    },
-    affectedShipmentIds: ['SHP-5002'],
-    delayedProgressMap: { 'SHP-5002': 0.25 },
-    routeStatuses: {
-      'R-002B': 'impacted',
-      'R-021A': 'impacted',
-      'R-007A': 'recommended',
-      'R-007B': 'recommended',
-      'R-007C': 'recommended',
-      'R-007E': 'recommended',
-      'R-007F': 'recommended',
-    },
-  },
-
-  // Scenario 6: MULTI-ROUTE DISRUPTION (DIS-008: Cascading Failure)
-  MULTI_ROUTE: {
-    id: 'MULTI_ROUTE',
-    label: 'MULTI-ROUTE DISRUPTION (DIS-008)',
-    primarySelectedShipmentId: 'SHP-5002',
-    disruptions: [
-      {
-        id: 'DIS-002',
-        title: 'Route Blockage (South)',
-        disruptionType: 'Route Blockage',
-        location: 'NH-44 / RT-007 (Jadcherla ➔ Kurnool Sector)',
-        description: 'Port access route blocked due to landslide; shipments require an alternate path.',
-        severity: 4,
-        capacityImpact: '100% reduction',
+        capacityImpact: '60% capacity restriction',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'R-021A',
-        blockedRouteName: 'RT-007 / R-021A',
-        fromCity: 'Jadcherla',
-        toCity: 'Kurnool',
-        coordinates: [16.294, 78.0886], // Midpoint between J-JA and J2
-      },
-      {
-        id: 'DIS-006',
-        title: 'Vehicle Breakdown (West)',
-        disruptionType: 'Vehicle Breakdown',
-        location: 'NH-53 / Route R-001B (Nashik ➔ Nagpur)',
-        description: 'Half of planned route capacity unavailable during vehicle breakdown / major collision.',
-        severity: 3,
-        capacityImpact: '50% reduction',
-        affectedShipmentsCount: 1,
-        affectedRoutesCount: 2,
-        status: 'ACTIVE',
-        blockedRouteId: 'R-001B',
-        blockedRouteName: 'RT-004 / R-001B (Nashik ➔ Nagpur)',
-        fromCity: 'Nashik',
-        toCity: 'Nagpur',
-        coordinates: [19.9975, 73.7898], // J12 Nashik
+        blockedRouteId: 'FLOW-MH12VW2234',
+        blockedRouteName: 'FLOW-MH12VW2234 (Chakan ➔ Jeedimetla)',
+        fromCity: 'Pune',
+        toCity: 'Hyderabad',
+        coordinates: [17.6599, 75.9064], // Solapur
       },
     ],
     recovery: {
-      title: 'Dual-Corridor AI Swarm Recovery (Eastern Coastal + Nanded Detours)',
-      corridor: 'Parallel Reroute: SHP-5002 via Chennai + SHP-5001 via Nanded',
-      travelTimeDelta: '+3.2h / +2.1h',
-      distanceDelta: '+210 km / +125 km',
-      costDelta: '+11%',
-      originalRouteDesc: 'Corridors R-021 (South) & R-001B (West)',
-      originalDistKm: 1500,
-      originalTimeHr: 27.0,
-      recoveryRouteDesc: 'Bypass A (J3-J4-Chennai-J5) & Bypass B (J12-J6-WH-001)',
-      recoveryDistKm: 1835,
-      recoveryTimeHr: 32.3,
-      explanation: 'Simultaneous quantum optimization of 2 blocked national trunks, dispatching SHP-5002 via coastal corridor and SHP-5001 via Nanded transit bypass.',
-      viaJunctions: 'J3 (Vijayawada), J4 (Nellore), J6 (Nanded), J12 (Nashik)',
-      bypassCoords: [14.4426, 80.8], // J4 Nellore
+      title: 'Reroute via Solapur Bypass (J-SOLAPUR)',
+      corridor: 'Pune (WH10) ➔ Solapur ➔ Hyderabad Central (WH01)',
+      travelTimeDelta: '+1.9h',
+      distanceDelta: '+90 km',
+      costDelta: '+6.2%',
+      originalRouteDesc: 'WH10 (Pune West) ➔ NH-65 ➔ WH01 (Hyderabad Central)',
+      originalDistKm: 560,
+      originalTimeHr: 10.0,
+      recoveryRouteDesc: 'WH10 ➔ Solapur Detour ➔ WH01',
+      recoveryDistKm: 650,
+      recoveryTimeHr: 11.9,
+      explanation: 'Swarm intelligence diverted heavy vehicle MH12VW2234 around the NH-65 collision bottleneck via the Southern Solapur bypass corridor.',
+      viaJunctions: 'J-SOLAPUR (Solapur Transit Waypoint)',
+      bypassCoords: [17.6599, 75.9064],
     },
-    affectedShipmentIds: ['SHP-5002', 'SHP-5001'],
-    delayedProgressMap: { 'SHP-5002': 0.46, 'SHP-5001': 0.28 },
+    affectedShipmentIds: ['MH12VW2234'],
+    delayedProgressMap: { 'MH12VW2234': 0.40 },
     routeStatuses: {
-      'R-020': 'active',     // 🔵 WH-002 ➔ J-JA Normal
-      'R-021A': 'disrupted', // 🔴 Route A DISRUPTED (J-JA ➔ J2)
-      'R-021B': 'active',    // 🔵 J2 ➔ WH-003 Normal
-      'R-004B': 'impacted',  // 🟠 Route B IMPACTED
-      'R-001B': 'disrupted', // 🔴 Route C DISRUPTED
-      'R-005A': 'recommended', // 🟢 Route D AVAILABLE / RECOVERY
-      'R-005B': 'recommended',
-      'R-005C': 'recommended',
-      'R-005D': 'recommended',
-      'R-005E': 'recommended',
-      'R-008A': 'recommended',
-      'R-007A': 'candidate',
+      'FLOW-MH12VW2234': 'disrupted',
+      'ALT-WESTERN-01': 'recommended',
+    },
+  },
+
+  // Scenario 4: EXTREME WEATHER (DIS-003 on Coastal Corridor)
+  EXTREME_WEATHER: {
+    id: 'EXTREME_WEATHER',
+    label: 'EXTREME WEATHER (DIS-003)',
+    primarySelectedShipmentId: 'AP16NO7834',
+    disruptions: [
+      {
+        id: 'DIS-003',
+        title: 'Cyclonic Coastal Deluge',
+        disruptionType: 'Extreme Weather',
+        location: 'NH-16 Coastal Belt (Gannavaram ➔ Gajuwaka)',
+        description: 'Torrential downpour flooded coastal highway; heavy vehicle AP16NO7834 halted.',
+        severity: 4,
+        capacityImpact: '75% velocity reduction',
+        affectedShipmentsCount: 1,
+        affectedRoutesCount: 1,
+        status: 'ACTIVE',
+        blockedRouteId: 'FLOW-AP16NO7834',
+        blockedRouteName: 'FLOW-AP16NO7834 (Gannavaram ➔ Gajuwaka)',
+        fromCity: 'Vijayawada',
+        toCity: 'Visakhapatnam',
+        coordinates: [17.15, 82.15],
+      },
+    ],
+    recovery: {
+      title: 'Inland Expressway Detour via Warangal Hub (WH09)',
+      corridor: 'Vijayawada (WH07) ➔ Warangal (WH09) ➔ Visakhapatnam (WH08)',
+      travelTimeDelta: '+3.5h',
+      distanceDelta: '+220 km',
+      costDelta: '+12.5%',
+      originalRouteDesc: 'WH07 (Vijayawada) ➔ Coastal NH-16 ➔ WH08 (Visakhapatnam)',
+      originalDistKm: 350,
+      originalTimeHr: 6.5,
+      recoveryRouteDesc: 'WH07 ➔ WH09 (Warangal Hub) ➔ WH08 (Visakhapatnam)',
+      recoveryDistKm: 570,
+      recoveryTimeHr: 10.0,
+      explanation: 'Severe coastal flooding triggered automated inland reallocation through Warangal Hub (WH09) high ground corridor.',
+      viaJunctions: 'WH09 (Warangal Hub Inland Bypass)',
+      bypassCoords: [17.9784, 79.5218], // WH09 Warangal
+    },
+    affectedShipmentIds: ['AP16NO7834'],
+    delayedProgressMap: { 'AP16NO7834': 0.45 },
+    routeStatuses: {
+      'FLOW-AP16NO7834': 'disrupted',
+      'ALT-INLAND-01': 'recommended',
+    },
+  },
+
+  // Scenario 5: CAPACITY REDUCTION (DIS-004 at WH01)
+  CAPACITY_REDUCTION: {
+    id: 'CAPACITY_REDUCTION',
+    label: 'CAPACITY REDUCTION (DIS-004)',
+    primarySelectedShipmentId: 'TS10CD2045',
+    disruptions: [
+      {
+        id: 'DIS-004',
+        title: 'DC Automated Sorter Failure',
+        disruptionType: 'Warehouse Disruption',
+        location: 'WH01 (Hyderabad Central DC)',
+        description: 'Automated sorting arm maintenance reduces throughput by 40% at Jeedimetla DC.',
+        severity: 3,
+        capacityImpact: '40% throughput reduction',
+        affectedShipmentsCount: 1,
+        affectedRoutesCount: 1,
+        status: 'ACTIVE',
+        blockedRouteId: 'FLOW-TS10CD2045',
+        blockedRouteName: 'WH01 Inbound/Outbound Feed',
+        fromCity: 'Hyderabad',
+        toCity: 'Vijayawada',
+        coordinates: [17.5169, 78.4721], // WH01
+      },
+    ],
+    recovery: {
+      title: 'Dynamic Cross-Dock Rebalance to WH02 (Hyderabad South)',
+      corridor: 'Rebalance to WH02 (Shamshabad Hub) ➔ WH07 (Vijayawada)',
+      travelTimeDelta: '+1.2h',
+      distanceDelta: '+45 km',
+      costDelta: '+4.0%',
+      originalRouteDesc: 'WH01 (Jeedimetla) ➔ WH07 (Vijayawada)',
+      originalDistKm: 275,
+      originalTimeHr: 5.0,
+      recoveryRouteDesc: 'WH02 (Shamshabad) ➔ WH07 (Vijayawada)',
+      recoveryDistKm: 320,
+      recoveryTimeHr: 6.2,
+      explanation: 'Consignment shifted to Hyderabad South Hub (WH02) cross-dock bays, relieving overloaded sorters at WH01.',
+      viaJunctions: 'WH02 (Shamshabad Logistics Park)',
+      bypassCoords: [17.2543, 78.4286],
+    },
+    affectedShipmentIds: ['TS10CD2045'],
+    delayedProgressMap: { 'TS10CD2045': 0.25 },
+    routeStatuses: {
+      'FLOW-TS10CD2045': 'impacted',
+      'ALT-COASTAL-01': 'recommended',
+    },
+  },
+
+  // Scenario 6: MULTI-ROUTE DISRUPTION (DIS-008 Cascading Failure)
+  MULTI_ROUTE: {
+    id: 'MULTI_ROUTE',
+    label: 'MULTI-ROUTE DISRUPTION (DIS-008)',
+    primarySelectedShipmentId: 'TS09AB1001',
+    disruptions: [
+      {
+        id: 'DIS-002',
+        title: 'Route Blockage (South Trunk)',
+        disruptionType: 'Route Blockage',
+        location: 'NH-44 Kurnool Sector (Shamshabad ➔ Manali)',
+        description: 'Landslide blocks southern artery for vehicle TS09AB1001.',
+        severity: 4,
+        capacityImpact: '100% blockage',
+        affectedShipmentsCount: 1,
+        affectedRoutesCount: 1,
+        status: 'ACTIVE',
+        blockedRouteId: 'FLOW-TS09AB1001',
+        blockedRouteName: 'FLOW-TS09AB1001 (Shamshabad ➔ Manali)',
+        fromCity: 'Hyderabad',
+        toCity: 'Chennai',
+        coordinates: [15.8281, 78.0373],
+      },
+      {
+        id: 'DIS-006',
+        title: 'Vehicle Breakdown (West Trunk)',
+        disruptionType: 'Vehicle Breakdown',
+        location: 'NH-65 Solapur Sector (Chakan ➔ Jeedimetla)',
+        description: 'Collision stalls heavy vehicle MH12VW2234.',
+        severity: 3,
+        capacityImpact: '50% reduction',
+        affectedShipmentsCount: 1,
+        affectedRoutesCount: 1,
+        status: 'ACTIVE',
+        blockedRouteId: 'FLOW-MH12VW2234',
+        blockedRouteName: 'FLOW-MH12VW2234 (Chakan ➔ Jeedimetla)',
+        fromCity: 'Pune',
+        toCity: 'Hyderabad',
+        coordinates: [17.6599, 75.9064],
+      },
+    ],
+    recovery: {
+      title: 'Dual-Corridor AI Swarm Recovery (Eastern Coastal + Solapur Bypass)',
+      corridor: 'Parallel Reroute: TS09AB1001 via Vijayawada + MH12VW2234 via Solapur',
+      travelTimeDelta: '+2.8h / +1.9h',
+      distanceDelta: '+165 km / +90 km',
+      costDelta: '+8.5%',
+      originalRouteDesc: 'Corridors TS09AB1001 & MH12VW2234',
+      originalDistKm: 1190,
+      originalTimeHr: 21.5,
+      recoveryRouteDesc: 'Coastal Corridor (WH07) & Solapur Bypass',
+      recoveryDistKm: 1445,
+      recoveryTimeHr: 26.2,
+      explanation: 'Simultaneous quantum swarm optimization of two blocked national vectors, rerouting southern flow via WH07 (Vijayawada) and western flow via Solapur.',
+      viaJunctions: 'WH07 (Vijayawada Hub), J-SOLAPUR (Solapur Transit)',
+      bypassCoords: [16.5414, 80.7981],
+    },
+    affectedShipmentIds: ['TS09AB1001', 'MH12VW2234'],
+    delayedProgressMap: { 'TS09AB1001': 0.35, 'MH12VW2234': 0.40 },
+    routeStatuses: {
+      'FLOW-TS09AB1001': 'disrupted',
+      'FLOW-MH12VW2234': 'disrupted',
+      'ALT-COASTAL-01': 'recommended',
+      'ALT-COASTAL-02': 'recommended',
+      'ALT-WESTERN-01': 'recommended',
     },
   },
 };
 
 export class IndiaLogisticsService {
-  private currentScenarioId: ScenarioId = 'ROAD_CLOSURE';
-  private nodes: LogisticsNode[] = JSON.parse(JSON.stringify(INDIA_NODES));
+  private currentScenarioId: ScenarioId = 'NORMAL';
+  private nodes: LogisticsNode[] = JSON.parse(JSON.stringify(FIRSTMILE_NODES));
   private routes: LogisticsRoute[] = JSON.parse(JSON.stringify(INITIAL_ROUTES));
-  private shipments: MovingShipment[] = JSON.parse(JSON.stringify(INITIAL_SHIPMENTS));
+  private shipments: MovingShipment[] = JSON.parse(JSON.stringify(FIRSTMILE_SHIPMENTS));
   private disruptions: DisruptionAlert[] = [];
-  private recovery: RecoveryRecommendation = SCENARIO_PRESETS.ROAD_CLOSURE.recovery;
+  private recovery: RecoveryRecommendation = SCENARIO_PRESETS.NORMAL.recovery;
 
   constructor() {
-    this.setScenario('ROAD_CLOSURE');
+    this.setScenario('NORMAL');
   }
 
   getCurrentScenarioId(): ScenarioId {
@@ -638,8 +642,8 @@ export class IndiaLogisticsService {
       id: 'DIS-NONE',
       title: 'Nominal Network',
       disruptionType: 'None',
-      location: 'Pan-India Network',
-      description: 'All corridors operational.',
+      location: 'Pan-Network FirstMile Grid',
+      description: 'All 15 vehicle flows and 10 warehouse hubs operational.',
       severity: 0,
       capacityImpact: '0%',
       affectedShipmentsCount: 0,
@@ -649,7 +653,7 @@ export class IndiaLogisticsService {
       blockedRouteName: '',
       fromCity: '',
       toCity: '',
-      coordinates: [18.5, 79.8],
+      coordinates: [17.5169, 78.4721],
     };
   }
 
@@ -663,14 +667,26 @@ export class IndiaLogisticsService {
     const isDisrupted = activeCount > 0;
 
     return {
-      suppliers: 10,
-      warehouses: 6,
-      activeShipments: 12,
-      onTimeShipments: isDisrupted ? 12 - delayedCount : 12,
-      delayedShipments: delayedCount,
-      orders: 12,
+      warehouses: FIRSTMILE_LIVE_KPIS.warehousesCount, // 10
+      vehiclesInTransit: FIRSTMILE_LIVE_KPIS.vehiclesInTransitCount, // 15
+      products: FIRSTMILE_LIVE_KPIS.productsCount, // 1
+      productName: FIRSTMILE_LIVE_KPIS.productName, // Medical Supply Kit
+      businesses: FIRSTMILE_LIVE_KPIS.businessesCount, // 6
+      totalInventoryUnits: FIRSTMILE_LIVE_KPIS.totalInventoryUnits, // 2,630
+      totalWarehouseCapacityUnits: FIRSTMILE_LIVE_KPIS.totalWarehouseCapacityUnits, // 8,850
+      warehouseUtilizationPct: FIRSTMILE_LIVE_KPIS.avgWarehouseUtilizationPct, // 29.7%
+      totalCapacityHeldUnits: FIRSTMILE_LIVE_KPIS.totalCapacityHeldUnits, // 1,088
+      totalFleetCapacityUnits: FIRSTMILE_LIVE_KPIS.totalFleetCapacityUnits, // 1,490
+      fleetUtilizationPct: FIRSTMILE_LIVE_KPIS.fleetUtilizationPct, // 73.0%
       activeDisruptions: activeCount,
-      networkHealthPct: isDisrupted ? Math.max(75, 99 - activeCount * 7 - delayedCount * 5) : 99,
+      networkStatus: isDisrupted ? 'DEGRADED' : 'OPERATIONAL',
+      networkHealthPct: isDisrupted ? Math.max(75, 100 - activeCount * 8 - delayedCount * 5) : 100,
+      // Backward compatibility
+      suppliers: FIRSTMILE_LIVE_KPIS.businessesCount,
+      activeShipments: FIRSTMILE_LIVE_KPIS.vehiclesInTransitCount,
+      onTimeShipments: isDisrupted ? 15 - delayedCount : 15,
+      delayedShipments: delayedCount,
+      orders: 15,
     };
   }
 
@@ -683,7 +699,7 @@ export class IndiaLogisticsService {
     this.routes = JSON.parse(JSON.stringify(INITIAL_ROUTES));
 
     // Reset base shipments
-    this.shipments = JSON.parse(JSON.stringify(INITIAL_SHIPMENTS));
+    this.shipments = JSON.parse(JSON.stringify(FIRSTMILE_SHIPMENTS));
 
     // Clone disruptions and recovery
     this.disruptions = JSON.parse(JSON.stringify(preset.disruptions));
@@ -731,17 +747,17 @@ export class IndiaLogisticsService {
         shp.routePath = [...shp.alternatePath];
         shp.status = 'REROUTED';
         shp.isAffected = false;
-        shp.eta = `${shp.eta.split(' ')[0] || '20:15'} IST (Recovered)`;
+        shp.eta = `${shp.eta.split(' ')[0] || '10:30'} IST (Recovered)`;
 
         // Adjust route ID and starting progress on bypass
-        if (shp.id === 'SHP-5002') {
-          shp.currentRouteId = 'R-005A';
+        if (shp.id === 'TS09AB1001') {
+          shp.currentRouteId = 'ALT-COASTAL-01';
           shp.progress = 0.38;
-        } else if (shp.id === 'SHP-5001') {
-          shp.currentRouteId = 'R-008A';
+        } else if (shp.id === 'MH12VW2234') {
+          shp.currentRouteId = 'ALT-WESTERN-01';
           shp.progress = 0.35;
-        } else if (shp.id === 'SHP-5003') {
-          shp.currentRouteId = 'R-009A';
+        } else if (shp.id === 'AP16NO7834') {
+          shp.currentRouteId = 'ALT-INLAND-01';
           shp.progress = 0.35;
         }
       }
@@ -755,7 +771,7 @@ export class IndiaLogisticsService {
     }
   }
 
-  // Reset to initial baseline disrupted state for evaluation replay
+  // Reset to initial baseline state for evaluation replay
   resetState(): void {
     this.setScenario(this.currentScenarioId);
   }

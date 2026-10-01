@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   MapContainer,
   TileLayer,
@@ -19,8 +19,15 @@ import {
   ScenarioId,
 } from '../services/indiaLogisticsService';
 import {
+  WAREHOUSE_RECORDS,
+  VEHICLE_TELEMETRY_RECORDS,
+  WarehouseRecord,
+  VehicleTelemetryRecord,
+} from '../services/firstMileData';
+import {
   Maximize2,
   Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface IndiaLeafletMapProps {
@@ -40,165 +47,65 @@ interface IndiaLeafletMapProps {
   candidateRoutesVisible: boolean;
 }
 
-// Controller to fly or fit camera
+// Controller to fly or fit camera to all 10 warehouses
 const MapCameraController: React.FC<{ resetTrigger: number }> = ({ resetTrigger }) => {
   const map = useMap();
   useEffect(() => {
-    map.setView([19.2, 79.2], 5, { animate: true });
+    // Bounds enclosing Pune [18.76, 73.85] to Visakhapatnam [17.69, 83.22] to Chennai [12.83, 80.26]
+    const bounds = L.latLngBounds([
+      [12.6, 73.5],
+      [19.2, 83.5],
+    ]);
+    map.fitBounds(bounds, { padding: [30, 30], animate: true });
   }, [resetTrigger, map]);
   return null;
 };
 
-// Auto-opener for Leaflet popups
-const PopupAutoOpener: React.FC<{ markerRef: React.RefObject<L.Marker | null>; trigger: any }> = ({
-  markerRef,
-  trigger,
-}) => {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (markerRef.current) {
-        markerRef.current.openPopup();
-      }
-    }, 450);
-    return () => clearTimeout(timer);
-  }, [markerRef, trigger]);
-  return null;
-};
-
-// 1. NODE MARKER ICON BUILDER (Distinguishes: Warehouse, Junction, Supplier, Customer)
-function createNodeMarkerIcon(
-  node: LogisticsNode,
-  isSelected: boolean,
-  hasActiveDisruptions: boolean,
-  isRerouted: boolean
+// 1. WAREHOUSE FACILITY MARKER ICON (10 Facilities)
+function createWarehouseMarkerIcon(
+  warehouse: WarehouseRecord,
+  isSelected: boolean
 ) {
-  // A. JUNCTION: Small circular node
-  if (node.type === 'junction' || node.isJunction) {
-    const isJ2 = node.id === 'J2';
-    const isJ12 = node.id === 'J12';
-    const isJ10 = node.id === 'J10';
-    const isRecoveryJunction = ['J3', 'J4', 'J5', 'J6', 'J13'].includes(node.id);
+  const isLowLoad = warehouse.loadCategory === 'LOW LOAD';
+  const isHighLoad = warehouse.loadCategory === 'HIGH LOAD';
 
-    let circleBg = 'bg-blue-600';
-    let ringClass = 'ring-2 ring-white';
-    let pulseHtml = '';
-    let labelExtra = '';
+  const badgeColor = isLowLoad
+    ? 'bg-sky-100 text-sky-800 border-sky-300'
+    : isHighLoad
+    ? 'bg-amber-100 text-amber-800 border-amber-300'
+    : 'bg-emerald-100 text-emerald-800 border-emerald-300';
 
-    if (hasActiveDisruptions && (isJ2 || isJ12 || isJ10)) {
-      circleBg = 'bg-rose-600';
-      ringClass = 'ring-2 ring-rose-400';
-      pulseHtml = '<div class="absolute -inset-1.5 rounded-full bg-rose-500/60 animate-ping"></div>';
-    } else if (isRecoveryJunction) {
-      if (isRerouted) {
-        circleBg = 'bg-emerald-500';
-        ringClass = 'ring-2 ring-emerald-300';
-        pulseHtml = '<div class="absolute -inset-1 rounded-full bg-emerald-400/40 animate-pulse"></div>';
-        labelExtra = '<span class="text-emerald-400 ml-0.5">✓ BYPASS</span>';
-      } else {
-        circleBg = 'bg-teal-600';
-        ringClass = 'ring-2 ring-teal-200';
-      }
-    }
+  const ringStyle = isSelected
+    ? 'ring-4 ring-blue-500 shadow-xl scale-110'
+    : 'ring-1 ring-slate-900/30 shadow-md hover:scale-105';
 
-    const html = `
-      <div class="relative flex flex-col items-center select-none cursor-pointer group">
-        ${pulseHtml}
-        <div class="w-4 h-4 rounded-full ${circleBg} ${ringClass} shadow-md flex items-center justify-center transition-transform group-hover:scale-125">
-          <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
-        </div>
-        <div class="mt-0.5 bg-slate-900/90 text-white px-1.5 py-0.2 rounded shadow text-[9px] font-mono font-bold whitespace-nowrap pointer-events-none transition group-hover:opacity-100">
-          ${node.name.split(' ')[0]} ${labelExtra}
-        </div>
-      </div>
-    `;
-
-    return L.divIcon({
-      html,
-      className: 'india-junction-marker',
-      iconSize: [50, 30],
-      iconAnchor: [25, 8],
-    });
-  }
-
-  // B. WAREHOUSE: Large prominent hub icon
-  if (node.type === 'warehouse') {
-    const borderRing = isSelected
-      ? 'ring-4 ring-sky-400 border-white'
-      : 'border-2 border-white ring-1 ring-slate-900/20';
-
-    const html = `
-      <div class="relative flex flex-col items-center select-none cursor-pointer transition-transform hover:scale-110">
-        <div class="w-8 h-8 rounded-xl bg-slate-900 shadow-xl flex items-center justify-center text-white ${borderRing}">
-          <svg class="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 21h18M5 21V7l7-4 7 4v14M9 14h6v7H9z"></path>
-          </svg>
-        </div>
-        <div class="mt-1 bg-white/95 px-2 py-0.5 rounded shadow border border-slate-200 text-center whitespace-nowrap pointer-events-none">
-          <div class="text-[10px] font-black text-slate-900 leading-tight">${node.name}</div>
-          <div class="text-[8.5px] font-mono text-emerald-600 font-bold leading-none mt-0.5">${node.city} • HUB</div>
-        </div>
-      </div>
-    `;
-
-    return L.divIcon({
-      html,
-      className: 'india-warehouse-marker',
-      iconSize: [90, 52],
-      iconAnchor: [45, 16],
-    });
-  }
-
-  // C. SUPPLIER: Square icon
-  if (node.type === 'supplier') {
-    const html = `
-      <div class="relative flex flex-col items-center select-none cursor-pointer transition-transform hover:scale-110">
-        <div class="w-7 h-7 rounded-lg bg-blue-600 shadow-lg flex items-center justify-center text-white border-2 border-white">
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2.5"></rect>
-            <path d="M3 9h18M9 21V9" stroke-width="2"></path>
-          </svg>
-        </div>
-        <div class="mt-1 bg-white/95 px-1.5 py-0.5 rounded shadow border border-slate-200 text-center whitespace-nowrap pointer-events-none">
-          <div class="text-[10px] font-bold text-slate-800 leading-tight">${node.name}</div>
-          <div class="text-[8.5px] font-mono text-blue-600 font-semibold leading-none mt-0.5">${node.city} • SUPPLIER</div>
-        </div>
-      </div>
-    `;
-
-    return L.divIcon({
-      html,
-      className: 'india-supplier-marker',
-      iconSize: [90, 48],
-      iconAnchor: [45, 14],
-    });
-  }
-
-  // D. CUSTOMER: Destination pin marker
   const html = `
-    <div class="relative flex flex-col items-center select-none cursor-pointer transition-transform hover:scale-110">
-      <div class="w-7 h-7 rounded-full bg-purple-600 shadow-lg flex items-center justify-center text-white border-2 border-white">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"></path>
-          <circle cx="12" cy="10" r="3" stroke-width="2"></circle>
+    <div class="relative flex flex-col items-center select-none pointer-events-none transition-all duration-200">
+      <div class="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center border-2 border-white ${ringStyle} pointer-events-none">
+        <svg class="w-4 h-4 text-emerald-400 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M3 21h18M5 21V7l7-4 7 4v14M9 14h6v7H9z"></path>
         </svg>
       </div>
-      <div class="mt-1 bg-white/95 px-1.5 py-0.5 rounded shadow border border-slate-200 text-center whitespace-nowrap pointer-events-none">
-        <div class="text-[10px] font-bold text-slate-800 leading-tight">${node.name}</div>
-        <div class="text-[8.5px] font-mono text-purple-600 font-semibold leading-none mt-0.5">${node.city} • CUSTOMER</div>
+      <div class="mt-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded shadow-md border border-slate-200 text-center whitespace-nowrap pointer-events-none">
+        <div class="text-[9.5px] font-black text-slate-900 leading-tight pointer-events-none">${warehouse.id} • ${warehouse.city}</div>
+        <div class="text-[8px] font-mono font-bold leading-none mt-0.5 px-1 py-0.2 rounded border ${badgeColor} pointer-events-none">
+          ${warehouse.currentLoad.toFixed(1)}% LOAD
+        </div>
       </div>
     </div>
   `;
 
   return L.divIcon({
     html,
-    className: 'india-customer-marker',
-    iconSize: [90, 48],
-    iconAnchor: [45, 14],
+    className: 'firstmile-warehouse-marker',
+    iconSize: [84, 50],
+    iconAnchor: [42, 16],
   });
 }
 
-// 2. MOVING SHIPMENT TRUCK ICON BUILDER (With Direction/Bearing Arrow)
-function createShipmentTruckIcon(
+// 2. MOVING VEHICLE TRUCK ICON BUILDER (15 In-Transit Vehicles)
+function createVehicleTruckIcon(
+  vehicle: VehicleTelemetryRecord,
   shipment: MovingShipment,
   isSelected: boolean,
   bearing: number
@@ -206,44 +113,53 @@ function createShipmentTruckIcon(
   const isDelayed = shipment.status === 'DELAYED';
   const isRerouted = shipment.status === 'REROUTED';
 
-  const bg = isDelayed ? 'bg-rose-600' : isRerouted ? 'bg-emerald-600' : 'bg-blue-600';
-  const ring = isSelected ? 'ring-4 ring-sky-300' : '';
+  const bg = isDelayed
+    ? 'bg-rose-600'
+    : isRerouted
+    ? 'bg-emerald-600'
+    : vehicle.vehicleType === 'Refrigerated Truck'
+    ? 'bg-blue-600'
+    : vehicle.vehicleType === 'Heavy Truck'
+    ? 'bg-purple-600'
+    : 'bg-indigo-600';
+
+  const ring = isSelected ? 'ring-4 ring-sky-400 shadow-xl scale-125' : 'ring-1 ring-white/80 shadow-md';
 
   const html = `
-    <div class="relative flex items-center justify-center select-none cursor-pointer group">
-      ${isDelayed ? '<div class="absolute -inset-2 rounded-full bg-rose-500/60 animate-ping"></div>' : ''}
+    <div class="relative flex items-center justify-center select-none pointer-events-none group">
+      ${isDelayed ? '<div class="absolute -inset-2.5 rounded-full bg-rose-500/60 animate-ping pointer-events-none"></div>' : ''}
       
       <!-- Direction Pointer Arrow -->
       <div 
         style="transform: rotate(${bearing}deg);" 
         class="absolute -inset-1.5 flex items-start justify-center pointer-events-none transition-transform duration-200"
       >
-        <div class="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[8px] ${
+        <div class="w-0 h-0 border-l-[3.5px] border-l-transparent border-r-[3.5px] border-r-transparent border-b-[7px] ${
           isDelayed ? 'border-b-rose-600' : isRerouted ? 'border-b-emerald-600' : 'border-b-blue-600'
-        } drop-shadow"></div>
+        } drop-shadow pointer-events-none"></div>
       </div>
 
-      <!-- Truck Container Icon -->
-      <div class="w-7 h-7 rounded-full shadow-lg ${bg} ${ring} text-white flex items-center justify-center border-2 border-white transition-transform group-hover:scale-125 z-10">
-        <span class="text-[12px] leading-none select-none">🚚</span>
+      <!-- Truck Container Badge -->
+      <div class="w-7 h-7 rounded-full ${bg} ${ring} text-white flex items-center justify-center border-2 border-white transition-transform group-hover:scale-125 z-10 pointer-events-none">
+        <span class="text-[11px] leading-none select-none pointer-events-none">🚚</span>
       </div>
 
-      <!-- Status Pill Tooltip -->
-      <div class="absolute -bottom-5 bg-slate-900/90 text-white text-[8.5px] font-mono px-1.5 py-0.5 rounded shadow pointer-events-none whitespace-nowrap opacity-0 group-hover:opacity-100 transition z-20">
-        ${shipment.id} • ${shipment.status}
+      <!-- Quick Tooltip Pill -->
+      <div class="absolute -bottom-5 bg-slate-900 text-white text-[8px] font-mono px-1.5 py-0.5 rounded shadow pointer-events-none whitespace-nowrap opacity-0 group-hover:opacity-100 transition z-20">
+        ${vehicle.vehicleNo} (${vehicle.businessId})
       </div>
     </div>
   `;
 
   return L.divIcon({
     html,
-    className: 'shipment-truck-marker',
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    className: 'firstmile-vehicle-marker',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
   });
 }
 
-// 3. Disruption Blocked Roadblock Anchor Icon
+// 3. Disruption Roadblock Icon
 function createRoadblockIcon(id: string) {
   const html = `
     <div class="relative flex items-center justify-center select-none cursor-pointer group">
@@ -256,18 +172,18 @@ function createRoadblockIcon(id: string) {
 
   return L.divIcon({
     html,
-    className: `roadblock-anchor-icon roadblock-${id}`,
+    className: `roadblock-icon roadblock-${id}`,
     iconSize: [32, 32],
     iconAnchor: [16, 16],
   });
 }
 
-// 4. Rerouting Complete Check Anchor Icon
-function createRerouteCheckIcon() {
+// 4. Recovery Bypass Milestone Icon
+function createRecoveryBypassIcon() {
   const html = `
     <div class="relative flex items-center justify-center select-none cursor-pointer group">
-      <div class="absolute -inset-2 rounded-full bg-emerald-500/60 animate-ping"></div>
-      <div class="w-8 h-8 rounded-full bg-emerald-600 border-2 border-white shadow-2xl flex items-center justify-center text-white font-bold text-xs transition-transform group-hover:scale-110">
+      <div class="absolute -inset-2 rounded-full bg-emerald-500/50 animate-ping"></div>
+      <div class="w-7 h-7 rounded-full bg-emerald-600 border-2 border-white shadow-xl flex items-center justify-center text-white font-bold text-xs">
         ✓
       </div>
     </div>
@@ -275,9 +191,9 @@ function createRerouteCheckIcon() {
 
   return L.divIcon({
     html,
-    className: 'reroute-anchor-icon',
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    className: 'recovery-bypass-icon',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
   });
 }
 
@@ -299,296 +215,178 @@ export const IndiaLeafletMap: React.FC<IndiaLeafletMapProps> = ({
 }) => {
   const [resetCameraTrigger, setResetCameraTrigger] = useState(0);
 
-  // Auto-opener refs
-  const primaryRoadblockRef = useRef<L.Marker | null>(null);
-  const reroutePopupMarkerRef = useRef<L.Marker | null>(null);
-
-  // Map of Node ID to Object
-  const nodeMap = useMemo(() => {
-    const m = new Map<string, LogisticsNode>();
-    for (const n of nodes) {
-      m.set(n.id, n);
+  // Map of Warehouses by ID
+  const warehouseMap = useMemo(() => {
+    const map = new Map<string, WarehouseRecord>();
+    for (const w of WAREHOUSE_RECORDS) {
+      map.set(w.id, w);
     }
-    return m;
-  }, [nodes]);
+    return map;
+  }, []);
 
-  // Active Disrupted State
+  // Map of Vehicles by vehicleNo
+  const vehicleMap = useMemo(() => {
+    const map = new Map<string, VehicleTelemetryRecord>();
+    for (const v of VEHICLE_TELEMETRY_RECORDS) {
+      map.set(v.vehicleNo, v);
+    }
+    return map;
+  }, []);
+
+  // Active Disruptions
   const activeDisruptions = useMemo(
     () => disruptions.filter((d) => d.status === 'ACTIVE'),
     [disruptions]
   );
   const hasActiveDisruptions = activeDisruptions.length > 0;
-
   const isRerouted = shipments.some((s) => s.status === 'REROUTED');
 
-  // Animated truck positions along routes
+  // Smooth Vehicle Animation Progress State
   const [progressState, setProgressState] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
-    for (const s of shipments) {
-      init[s.id] = s.progress;
+    for (const v of VEHICLE_TELEMETRY_RECORDS) {
+      init[v.vehicleNo] = v.progress;
     }
     return init;
   });
 
-  // Re-sync progress state on scenario changes
+  // Re-sync on scenario switch
   useEffect(() => {
     const next: Record<string, number> = {};
-    for (const s of shipments) {
-      next[s.id] = s.progress;
+    for (const v of VEHICLE_TELEMETRY_RECORDS) {
+      next[v.vehicleNo] = v.progress;
     }
     setProgressState(next);
-  }, [activeScenario, shipments]);
+  }, [activeScenario]);
 
-  // Smooth animation loop for shipments
+  // Smooth slow movement animation
   useEffect(() => {
     const interval = setInterval(() => {
       setProgressState((prev) => {
         const next = { ...prev };
         for (const s of shipments) {
           if (s.status === 'DELAYED') {
-            // Paused at the upstream checkpoint before the disruption
-            next[s.id] = s.progress;
+            next[s.id] = prev[s.id] || s.progress;
           } else if (s.status === 'REROUTED') {
-            // Smooth movement along bypass route
             const cur = prev[s.id] !== undefined ? prev[s.id] : s.progress;
-            if (cur < 0.99) {
-              next[s.id] = cur + 0.0008;
-            } else {
-              next[s.id] = 1.0;
-            }
+            next[s.id] = cur < 0.98 ? cur + 0.0006 : 0.98;
           } else {
-            // Active nominal shipments move slowly
             const cur = prev[s.id] !== undefined ? prev[s.id] : s.progress;
-            next[s.id] = (cur + 0.0005) % 1.0;
+            next[s.id] = (cur + 0.0003) % 1.0;
           }
         }
         return next;
       });
-    }, 50);
+    }, 60);
 
     return () => clearInterval(interval);
   }, [shipments]);
 
-  // Interpolate lat/lon and calculate bearing angle & current corridor
-  const getShipmentPosition = (
-    shipment: MovingShipment
-  ): { lat: number; lon: number; bearing: number; currentCorridor: string } => {
-    const pathNodes = shipment.routePath
-      .map((id) => nodeMap.get(id))
-      .filter((n): n is LogisticsNode => !!n);
+  // Calculate live moving position for a vehicle along its origin-to-destination corridor
+  const getVehiclePosition = (
+    _shipment: MovingShipment,
+    vRecord: VehicleTelemetryRecord
+  ): { lat: number; lon: number; bearing: number } => {
+    const fromWh = warehouseMap.get(vRecord.fromWarehouseId);
+    const toWh = warehouseMap.get(vRecord.toWarehouseId);
 
-    if (pathNodes.length < 2) {
-      const single = pathNodes[0] || nodes[0];
-      return {
-        lat: single.lat,
-        lon: single.lon,
-        bearing: 0,
-        currentCorridor: 'Stationary',
-      };
+    if (!fromWh || !toWh) {
+      return { lat: vRecord.lat, lon: vRecord.lon, bearing: vRecord.bearing };
     }
 
-    const t = progressState[shipment.id] !== undefined ? progressState[shipment.id] : shipment.progress;
+    const t = progressState[vRecord.vehicleNo] !== undefined
+      ? progressState[vRecord.vehicleNo]
+      : vRecord.progress;
 
-    // Calculate cumulative segment distances
-    const segments: { from: LogisticsNode; to: LogisticsNode; dist: number }[] = [];
-    let totalDist = 0;
-    for (let i = 0; i < pathNodes.length - 1; i++) {
-      const u = pathNodes[i];
-      const v = pathNodes[i + 1];
-      const d = Math.hypot(v.lat - u.lat, v.lon - u.lon);
-      segments.push({ from: u, to: v, dist: d });
-      totalDist += d;
-    }
+    // Linear interpolation between From and To
+    const lat = fromWh.lat + (toWh.lat - fromWh.lat) * t;
+    const lon = fromWh.lon + (toWh.lon - fromWh.lon) * t;
 
-    const targetDist = Math.max(0, Math.min(1, t)) * totalDist;
-    let accumulated = 0;
+    // Calculate heading angle
+    const dy = toWh.lat - fromWh.lat;
+    const dx = toWh.lon - fromWh.lon;
+    const rad = Math.atan2(dx, dy);
+    const bearing = ((rad * 180) / Math.PI + 360) % 360;
 
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const isLast = i === segments.length - 1;
-      if (accumulated + seg.dist >= targetDist || isLast) {
-        const segT = seg.dist > 0 ? (targetDist - accumulated) / seg.dist : 0;
-        const clampedT = Math.max(0, Math.min(1, segT));
-        const lat = seg.from.lat + (seg.to.lat - seg.from.lat) * clampedT;
-        const lon = seg.from.lon + (seg.to.lon - seg.from.lon) * clampedT;
-
-        // Bearing calculation in degrees (0° North, 90° East, 180° South, 270° West)
-        const dy = seg.to.lat - seg.from.lat;
-        const dx = seg.to.lon - seg.from.lon;
-        const rad = Math.atan2(dx, dy);
-        const bearing = ((rad * 180) / Math.PI + 360) % 360;
-
-        const currentCorridor = `${seg.from.name.split(' ')[0]} ➔ ${seg.to.name.split(' ')[0]}`;
-        return { lat, lon, bearing, currentCorridor };
-      }
-      accumulated += seg.dist;
-    }
-
-    return {
-      lat: pathNodes[0].lat,
-      lon: pathNodes[0].lon,
-      bearing: 0,
-      currentCorridor: 'In Transit',
-    };
+    return { lat, lon, bearing };
   };
-
-  // Route Polyline Style determination: Supports Disrupted (🔴), Impacted (🟠), Recommended (🟢), Candidate (⚪), Active (🔵)
-  const getRouteStyle = (route: LogisticsRoute) => {
-    // 1. Disrupted Route: Red dashed with pulse effect (🔴 DISRUPTED)
-    if (route.status === 'disrupted') {
-      return {
-        color: '#ef4444',
-        weight: 4.5,
-        dashArray: '8, 8',
-        opacity: 0.95,
-        className: 'disrupted-route-pulse',
-      };
-    }
-
-    // 2. Impacted Route: Amber / Orange dashed with congested pulse (🟠 IMPACTED)
-    if (route.status === 'impacted') {
-      return {
-        color: '#f59e0b',
-        weight: 4.0,
-        dashArray: '6, 6',
-        opacity: 0.9,
-        className: 'impacted-route-congested',
-      };
-    }
-
-    // 3. Recommended / Recovery Route: Bright Green with marching-dash flow (🟢 AVAILABLE / RECOVERY)
-    if (route.status === 'recommended') {
-      if (isRerouted) {
-        return {
-          color: '#10b981',
-          weight: 5.5,
-          opacity: 1.0,
-          className: 'recovery-route-flow',
-        };
-      }
-      return {
-        color: '#10b981',
-        weight: 4.5,
-        dashArray: '6, 6',
-        opacity: 0.95,
-      };
-    }
-
-    // 4. Candidate Alternate Route: Gray dashed
-    if (route.status === 'candidate' || route.candidateGroup === 'B') {
-      return {
-        color: '#94a3b8',
-        weight: 2.5,
-        dashArray: '6, 6',
-        opacity: 0.65,
-      };
-    }
-
-    // 5. Warehouse selection highlight
-    if (selectedWarehouseId) {
-      if (route.fromId === selectedWarehouseId || route.toId === selectedWarehouseId) {
-        return { color: '#0284c7', weight: 4.0, opacity: 0.95 };
-      }
-      return { color: '#cbd5e1', weight: 1.5, opacity: 0.4 };
-    }
-
-    // 6. Active Trunk Route: Solid Blue
-    return {
-      color: '#2563eb',
-      weight: 3.5,
-      opacity: 0.85,
-    };
-  };
-
-  // Filter routes: in NORMAL state, keep alternate recovery corridors hidden
-  const visibleRoutes = useMemo(() => {
-    return routes.filter((r) => {
-      if (r.isAlternate) {
-        // In NORMAL state without simulation, alternate candidate corridors stay hidden
-        if (activeScenario === 'NORMAL' && !isSimulating && !candidateRoutesVisible) {
-          return false;
-        }
-        return candidateRoutesVisible || isSimulating || isRerouted || hasActiveDisruptions;
-      }
-      return true;
-    });
-  }, [routes, activeScenario, candidateRoutesVisible, isSimulating, isRerouted, hasActiveDisruptions]);
-
-  // Filter nodes: in NORMAL state, keep candidate alternate junctions hidden
-  const visibleNodes = useMemo(() => {
-    return nodes.filter((n) => {
-      if (n.isJunction) {
-        const isCandidateJunction = ['J3', 'J4', 'J5', 'J6', 'J7', 'J8', 'J9', 'J13'].includes(n.id);
-        if (isCandidateJunction && activeScenario === 'NORMAL' && !isSimulating && !candidateRoutesVisible) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [nodes, activeScenario, candidateRoutesVisible, isSimulating]);
 
   return (
-    <div className="relative w-full h-full bg-slate-100 overflow-hidden select-none">
-      {/* React-Leaflet Map */}
+    <div className="relative w-full h-full bg-slate-900 overflow-hidden select-none">
       <MapContainer
-        center={[19.2, 79.2]}
-        zoom={5}
-        scrollWheelZoom={true}
-        zoomControl={false}
+        center={[15.8, 79.2]}
+        zoom={6}
         className="w-full h-full z-0"
+        zoomControl={false}
       >
         <MapCameraController resetTrigger={resetCameraTrigger} />
 
-        {/* OpenStreetMap Base Layer */}
+        {/* Clean, High-Contrast OSM Tile Layer */}
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           maxZoom={18}
         />
 
-        {/* 1. Multimodal Route Corridors (Trunks + Multi-Junction Branching Vectors) */}
-        {visibleRoutes.map((route) => {
-          const fromNode = nodeMap.get(route.fromId);
-          const toNode = nodeMap.get(route.toId);
+        {/* 1. LOGISTICS NETWORK FLOWS (15 Inter-Facility Flows) */}
+        {routes.map((route) => {
+          const fromNode = nodes.find((n) => n.id === route.fromId);
+          const toNode = nodes.find((n) => n.id === route.toId);
           if (!fromNode || !toNode) return null;
 
-          const positions: [number, number][] = [
-            [fromNode.lat, fromNode.lon],
-            [toNode.lat, toNode.lon],
-          ];
+          const isDisrupted = route.status === 'disrupted';
+          const isRecommended = route.status === 'recommended';
+          const isAlternate = route.isAlternate;
 
-          const style = getRouteStyle(route);
+          if (isAlternate && !candidateRoutesVisible && !isRecommended) {
+            return null;
+          }
+
+          let polyColor = '#0284c7'; // Active normal flow
+          let polyWeight = 2.5;
+          let polyOpacity = 0.65;
+          let dashArray: string | undefined = undefined;
+
+          if (isDisrupted) {
+            polyColor = '#ef4444'; // Red dashed
+            polyWeight = 4;
+            polyOpacity = 0.95;
+            dashArray = '8, 8';
+          } else if (isRecommended) {
+            polyColor = '#10b981'; // Bright green
+            polyWeight = 4;
+            polyOpacity = 0.95;
+          } else if (isAlternate) {
+            polyColor = '#94a3b8';
+            polyWeight = 2;
+            polyOpacity = 0.45;
+            dashArray = '5, 5';
+          }
 
           return (
             <Polyline
               key={route.id}
-              positions={positions}
+              positions={[
+                [fromNode.lat, fromNode.lon],
+                [toNode.lat, toNode.lon],
+              ]}
               pathOptions={{
-                color: style.color,
-                weight: style.weight,
-                dashArray: style.dashArray,
-                opacity: style.opacity,
-                className: style.className,
+                color: polyColor,
+                weight: polyWeight,
+                opacity: polyOpacity,
+                dashArray,
               }}
             >
-              <Tooltip sticky direction="top" opacity={0.95}>
-                <div className="text-xs p-1">
-                  <div className="font-bold text-slate-900">{route.name}</div>
-                  <div className="text-slate-600 font-mono text-[11px]">
-                    {route.distanceKm} km • Est: {route.estTimeHr}h
+              <Tooltip direction="center" opacity={0.9}>
+                <div className="text-[11px] font-sans p-1">
+                  <div className="font-bold text-slate-900">
+                    Network Flow: {route.name}
                   </div>
-                  <div className="text-[10px] font-mono mt-0.5">
-                    {route.status === 'disrupted' ? (
-                      <span className="text-rose-600 font-bold">⛔ BLOCKED (Disrupted)</span>
-                    ) : route.status === 'impacted' ? (
-                      <span className="text-amber-600 font-bold">⚠️ CONGESTED (Impacted)</span>
-                    ) : route.status === 'recommended' ? (
-                      <span className="text-emerald-600 font-bold">✓ Selected AI Recovery Corridor</span>
-                    ) : route.status === 'candidate' ? (
-                      <span className="text-slate-500 font-bold">Candidate Alternate Corridor</span>
-                    ) : (
-                      <span className="text-blue-600 font-semibold">Active Operational Corridor</span>
-                    )}
+                  <div className="text-slate-500 text-[10px] font-mono mt-0.5">
+                    Distance: {route.distanceKm} km • Est: {route.estTimeHr}h
+                  </div>
+                  <div className="text-[9.5px] uppercase font-bold text-blue-600 mt-0.5">
+                    Status: {route.status.toUpperCase()}
                   </div>
                 </div>
               </Tooltip>
@@ -596,176 +394,246 @@ export const IndiaLeafletMap: React.FC<IndiaLeafletMapProps> = ({
           );
         })}
 
-        {/* 2. EXACT LEAFLET POPUP ON DISRUPTED EDGES (Requirement: Kurnool Road Disruption) */}
-        {activeDisruptions.map((disruption, idx) => {
-          // Compute dynamic midpoint strictly from edge endpoints (fromNode & toNode)
-          const blockedRoute = routes.find((r) => r.id === disruption.blockedRouteId);
-          const fromNode = blockedRoute ? nodeMap.get(blockedRoute.fromId) : null;
-          const toNode = blockedRoute ? nodeMap.get(blockedRoute.toId) : null;
-          const markerPos: [number, number] =
-            fromNode && toNode
-              ? [(fromNode.lat + toNode.lat) / 2, (fromNode.lon + toNode.lon) / 2]
-              : disruption.coordinates;
+        {/* 2. DISRUPTION ROADBLOCK MARKERS (Active only during simulated incidents) */}
+        {activeDisruptions.map((disruption) => (
+          <Marker
+            key={disruption.id}
+            position={disruption.coordinates}
+            icon={createRoadblockIcon(disruption.id)}
+          >
+            <Popup autoClose={false} closeOnClick={false} offset={[0, -14]}>
+              <div className="bg-slate-900 text-white p-3 rounded-xl border border-rose-500 shadow-2xl min-w-[210px] leading-tight select-none">
+                <div className="flex items-center gap-1.5 text-rose-400 font-black text-xs uppercase tracking-wider pb-1.5 border-b border-rose-900/60 mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+                  ROUTE DISRUPTED
+                </div>
+                <div className="font-mono font-bold text-white text-xs">
+                  {disruption.blockedRouteName}
+                </div>
+                <div className="text-slate-300 text-[11px] mt-1">
+                  {disruption.description}
+                </div>
+                <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-xs">
+                  <span className="text-slate-400 text-[10px] uppercase font-bold">Severity:</span>
+                  <span className="font-mono font-black text-rose-400 tracking-wider">
+                    {disruption.severity}/5 ({disruption.capacityImpact})
+                  </span>
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* 3. RECOVERY BYPASS CONFIRMATION MARKER (Post-Recovery in Simulation) */}
+        {isRerouted && (
+          <Marker position={recovery.bypassCoords} icon={createRecoveryBypassIcon()}>
+            <Popup offset={[0, -14]}>
+              <div className="bg-slate-900 text-white p-3 rounded-xl border border-emerald-500 shadow-2xl min-w-[220px] leading-tight select-none">
+                <div className="flex items-center gap-1.5 text-emerald-400 font-black text-xs uppercase tracking-wider pb-1.5 border-b border-emerald-900/60 mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                  REROUTED VIA AI SWARM
+                </div>
+                <div className="text-slate-200 text-xs font-sans">
+                  Via: {recovery.viaJunctions}
+                </div>
+                <div className="text-emerald-300 text-[11px] mt-1 font-mono">
+                  Delta: {recovery.travelTimeDelta} ({recovery.distanceDelta})
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
+        {/* 4. EXACT 10 WAREHOUSE FACILITY MARKERS */}
+        {WAREHOUSE_RECORDS.map((warehouse) => {
+          const isSelected = selectedWarehouseId === warehouse.id;
 
           return (
             <Marker
-              key={disruption.id}
-              ref={idx === 0 ? primaryRoadblockRef : undefined}
-              position={markerPos}
-              icon={createRoadblockIcon(disruption.id)}
+              key={warehouse.id}
+              position={[warehouse.lat, warehouse.lon]}
+              icon={createWarehouseMarkerIcon(warehouse, isSelected)}
               eventHandlers={{
-                add: (e) => {
-                  setTimeout(() => e.target.openPopup(), 100);
-                },
+                click: () => onSelectWarehouse(isSelected ? null : warehouse.id),
               }}
             >
-              <Popup
-                autoClose={false}
-                closeOnClick={false}
-                autoPan={false}
-                offset={[0, -16]}
-                className="leaflet-popup-custom"
-              >
-                <div className="bg-slate-900 text-white p-3 rounded-xl border border-rose-500 shadow-2xl min-w-[210px] leading-tight">
-                  {/* Header: ROUTE DISRUPTED */}
-                  <div className="flex items-center gap-1.5 text-rose-400 font-black text-xs uppercase tracking-wider pb-1.5 border-b border-rose-900/60 mb-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
-                    ROUTE DISRUPTED
+              {/* Detailed Real Dataset Warehouse Popup */}
+              <Popup offset={[0, -18]}>
+                <div className="p-3 bg-white text-slate-900 rounded-xl min-w-[240px] max-w-[270px] leading-tight select-none font-sans">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 mb-2">
+                    <span className="font-black text-xs text-slate-900 font-mono">
+                      {warehouse.id} • {warehouse.city}
+                    </span>
+                    <span
+                      className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded border ${
+                        warehouse.loadCategory === 'LOW LOAD'
+                          ? 'bg-sky-50 text-sky-700 border-sky-200'
+                          : warehouse.loadCategory === 'HIGH LOAD'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}
+                    >
+                      {warehouse.loadCategory}
+                    </span>
                   </div>
-                  <div className="font-mono font-bold text-white text-xs">
-                    {disruption.blockedRouteName}
+
+                  <div className="font-bold text-xs text-slate-800 leading-snug">
+                    {warehouse.name}
                   </div>
-                  <div className="text-slate-400 text-xs font-medium mt-0.5">
-                    Kurnool corridor
+                  <div className="text-[10.5px] text-slate-500 mt-0.5">
+                    {warehouse.address}
                   </div>
-                  <div className="text-rose-300 text-xs mt-1">
-                    Cause: {disruption.disruptionType}
-                  </div>
-                  <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-xs">
-                    <span className="text-slate-400 text-[10px] uppercase font-bold">Status:</span>
-                    <span className="font-mono font-black text-rose-400 tracking-wider">BLOCKED</span>
+
+                  <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 text-[10.5px]">Product SKU:</span>
+                      <span className="font-semibold text-slate-800 text-[11px]">
+                        {warehouse.product}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 text-[10.5px]">Inventory Units:</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {warehouse.inventory.toLocaleString()} / {warehouse.capacity.toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* Load Percentage Progress Bar */}
+                    <div>
+                      <div className="flex justify-between text-[10px] mb-1">
+                        <span className="text-slate-500 font-semibold uppercase">Current Load</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {warehouse.currentLoad.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${warehouse.currentLoad}%` }}
+                          className={`h-full rounded-full ${
+                            warehouse.loadCategory === 'LOW LOAD'
+                              ? 'bg-sky-500'
+                              : warehouse.loadCategory === 'HIGH LOAD'
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                        ></div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-1">
+                      <span className="text-slate-400 text-[10.5px]">Facility Status:</span>
+                      <span className="font-bold text-emerald-600 flex items-center gap-1 text-[11px]">
+                        <CheckCircle2 className="w-3 h-3" />
+                        {warehouse.status}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </Popup>
             </Marker>
           );
         })}
-        <PopupAutoOpener markerRef={primaryRoadblockRef} trigger={`${activeScenario}-${hasActiveDisruptions}`} />
 
-        {/* 3. EXACT LEAFLET POPUP AFTER RECOVERY: REROUTED */}
-        {isRerouted && (
-          <Marker
-            ref={reroutePopupMarkerRef}
-            position={recovery.bypassCoords}
-            icon={createRerouteCheckIcon()}
-            eventHandlers={{
-              add: (e) => {
-                setTimeout(() => e.target.openPopup(), 100);
-              },
-            }}
-          >
-            <Popup
-              autoClose={false}
-              closeOnClick={false}
-              autoPan={false}
-              offset={[0, -16]}
-              className="leaflet-popup-custom"
-            >
-              <div className="bg-slate-900 text-white p-3 rounded-xl border border-emerald-500 shadow-2xl min-w-[230px] leading-tight">
-                {/* Header: REROUTED */}
-                <div className="flex items-center gap-1.5 text-emerald-400 font-black text-xs uppercase tracking-wider pb-1.5 border-b border-emerald-900/60 mb-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                  REROUTED
-                </div>
-                <div className="text-slate-200 text-xs font-sans mt-1">
-                  Via: {recovery.viaJunctions}
-                </div>
-                <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-xs">
-                  <span className="text-slate-400 text-[10px] uppercase font-bold">Status:</span>
-                  <span className="font-mono font-black text-emerald-400 tracking-wider">ACTIVE</span>
-                </div>
-              </div>
-            </Popup>
-          </Marker>
-        )}
-        <PopupAutoOpener markerRef={reroutePopupMarkerRef} trigger={isRerouted} />
-
-        {/* 4. Node Markers (Warehouse, Junction, Supplier, Customer) */}
-        {visibleNodes.map((node) => {
-          const isSelected = selectedWarehouseId === node.id;
-          return (
-            <Marker
-              key={node.id}
-              position={[node.lat, node.lon]}
-              icon={createNodeMarkerIcon(node, isSelected, hasActiveDisruptions, isRerouted)}
-              eventHandlers={{
-                click: () => {
-                  if (node.type === 'warehouse') {
-                    onSelectWarehouse(isSelected ? null : node.id);
-                  }
-                },
-              }}
-            >
-              <Tooltip direction="top" offset={[0, -20]}>
-                <div className="text-xs p-1">
-                  <div className="font-bold">{node.name} • {node.city}</div>
-                  <div className="text-slate-500 uppercase text-[10px] font-mono">{node.type}</div>
-                  {node.capacity && (
-                    <div className="text-slate-600 text-[11px] font-mono">
-                      Capacity: {node.capacity.toLocaleString()} units
-                    </div>
-                  )}
-                </div>
-              </Tooltip>
-            </Marker>
-          );
-        })}
-
-        {/* 5. Animated Moving Shipments (Trucks with direction/bearing indicators) */}
+        {/* 5. EXACT 15 IN-TRANSIT VEHICLE TRUCK MARKERS */}
         {shipments.map((shp) => {
-          const pos = getShipmentPosition(shp);
+          const vRecord = vehicleMap.get(shp.id);
+          if (!vRecord) return null;
+
+          const pos = getVehiclePosition(shp, vRecord);
           const isSelected = shp.id === selectedShipmentId;
 
           return (
             <Marker
               key={shp.id}
               position={[pos.lat, pos.lon]}
-              icon={createShipmentTruckIcon(shp, isSelected, pos.bearing)}
+              icon={createVehicleTruckIcon(vRecord, shp, isSelected, pos.bearing)}
               eventHandlers={{
                 click: () => onSelectShipment(shp.id),
               }}
             >
-              <Tooltip direction="top" offset={[0, -18]} opacity={0.95}>
-                <div className="text-xs p-1.5 font-mono min-w-[190px]">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-1">
-                    <span className="font-black text-slate-900">{shp.id}</span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                      shp.status === 'DELAYED'
-                        ? 'bg-rose-100 text-rose-700'
-                        : shp.status === 'REROUTED'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-blue-100 text-blue-700'
-                    }`}>
-                      {shp.status}
+              {/* Detailed Real Dataset Vehicle Popup */}
+              <Popup offset={[0, -16]}>
+                <div className="p-3 bg-white text-slate-900 rounded-xl min-w-[250px] max-w-[280px] leading-tight select-none font-sans">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 mb-2">
+                    <span className="font-mono font-black text-xs text-slate-900">
+                      {vRecord.vehicleNo}
+                    </span>
+                    <span
+                      className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded font-mono ${
+                        shp.status === 'DELAYED'
+                          ? 'bg-rose-100 text-rose-700 animate-pulse'
+                          : shp.status === 'REROUTED'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}
+                    >
+                      {shp.status === 'DELAYED' ? 'DELAYED' : vRecord.status}
                     </span>
                   </div>
-                  <div className="text-slate-600 text-[11px]">{shp.orderId} • {shp.sku} ({shp.quantity} units)</div>
-                  <div className="text-slate-500 text-[10px] mt-1 pt-1 border-t border-slate-100">
-                    <span className="font-semibold text-slate-700">Corridor:</span> {pos.currentCorridor}
+
+                  <div className="grid grid-cols-2 gap-1.5 text-xs mb-2">
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Vehicle Type</span>
+                      <span className="font-bold text-slate-800 text-[11px] truncate block">
+                        {vRecord.vehicleType}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Business ID</span>
+                      <span className="font-mono font-bold text-purple-700 text-[11px] block">
+                        {vRecord.businessId}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-slate-500 text-[10px]">
-                    <span className="font-semibold text-slate-700">ETA:</span> {shp.eta}
+
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 text-[10.5px]">Product SKU:</span>
+                      <span className="font-semibold text-slate-800 text-[11px]">
+                        {vRecord.product}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 text-[10.5px]">Capacity Held:</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {vRecord.capacityHeld} / {vRecord.totalCapacity} units ({vRecord.utilization.toFixed(1)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 text-[10.5px]">Last Telemetry:</span>
+                      <span className="font-semibold text-slate-700 text-[10.5px] truncate max-w-[150px]">
+                        {vRecord.lastUpdatedLocation}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 text-[10.5px]">Updated At:</span>
+                      <span className="font-mono text-slate-500 text-[10px]">
+                        {vRecord.lastUpdatedTime.split(' ')[1]} IST
+                      </span>
+                    </div>
+
+                    {/* Flow Route */}
+                    <div className="mt-2 p-1.5 bg-slate-50 rounded-lg border border-slate-200/80 text-[10px] leading-tight">
+                      <span className="text-slate-400 uppercase font-bold block mb-0.5">Network Flow</span>
+                      <span className="text-slate-700 font-semibold truncate block">
+                        {vRecord.fromAddress.split(',')[0]} ➔ {vRecord.toAddress.split(',')[0]}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </Tooltip>
+              </Popup>
             </Marker>
           );
         })}
       </MapContainer>
 
-      {/* REROUTED SUCCESSFULLY Toast Banner */}
+      {/* REROUTED TOAST BANNER (In Simulation Mode) */}
       {isRerouted && (
-        <div className="absolute top-4 right-4 z-20 flex items-center gap-2.5 bg-emerald-950/95 backdrop-blur-md text-white px-3.5 py-2 rounded-2xl shadow-2xl border border-emerald-500 animate-in fade-in slide-in-from-top-2 max-w-xs sm:max-w-sm">
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2.5 bg-emerald-950/95 backdrop-blur-md text-white px-3.5 py-2 rounded-2xl shadow-2xl border border-emerald-500 max-w-xs sm:max-w-sm">
           <div className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center font-bold text-xs shrink-0">
             ✓
           </div>
@@ -774,135 +642,94 @@ export const IndiaLeafletMap: React.FC<IndiaLeafletMapProps> = ({
               REROUTED SUCCESSFULLY
             </div>
             <div className="text-[10px] text-slate-200 font-mono leading-tight mt-0.5">
-              Consignment redirected via {recovery.viaJunctions}
+              Flow redirected via {recovery.viaJunctions}
             </div>
           </div>
         </div>
       )}
 
-      {/* Map Control Buttons (Top-Left) */}
+      {/* Map Camera Reset Button (Top-Left) */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5 shadow-md">
         <button
           type="button"
           onClick={() => setResetCameraTrigger((c) => c + 1)}
-          title="Fit Network"
+          title="Fit 10 Facilities"
           className="w-8 h-8 rounded-lg bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center border border-slate-200 transition shadow-sm hover:shadow"
         >
           <Maximize2 className="w-4 h-4" />
         </button>
       </div>
 
-      {/* In-Map Legend Overlay (Bottom-Left) */}
-      <div className="absolute bottom-4 left-4 z-10 bg-white/95 backdrop-blur-md p-3 rounded-xl border border-slate-200 shadow-md text-xs space-y-1.5 max-w-[280px]">
-        <div className="flex items-center gap-2">
-          <span className="w-6 h-0.5 bg-blue-600 inline-block"></span>
-          <span className="text-slate-700 font-medium">Route D 🟢 AVAILABLE / Active Trunk</span>
+      {/* In-Map Map Legend (Bottom-Left) */}
+      <div className="absolute bottom-4 left-4 z-10 bg-white/95 backdrop-blur-md p-2.5 rounded-xl border border-slate-200 shadow-md text-xs space-y-1.5 max-w-[270px]">
+        <div className="flex items-center gap-2 text-[10.5px]">
+          <span className="w-5 h-0.5 bg-sky-600 inline-block"></span>
+          <span className="text-slate-700 font-medium">Active Network Flow (15 In-Transit)</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-6 h-0.5 border-b-2 border-dashed border-emerald-500 inline-block"></span>
-          <span className="text-slate-700 font-medium flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-            Recommended Recovery Flow
-          </span>
+        {hasActiveDisruptions && (
+          <div className="flex items-center gap-2 text-[10.5px]">
+            <span className="w-5 h-0.5 bg-rose-500 border-b border-dashed inline-block"></span>
+            <span className="text-rose-700 font-bold">Disrupted Corridor (Landslide/Collision)</span>
+          </div>
+        )}
+        {isRerouted && (
+          <div className="flex items-center gap-2 text-[10.5px]">
+            <span className="w-5 h-0.5 bg-emerald-500 inline-block"></span>
+            <span className="text-emerald-700 font-bold">Recommended Swarm Bypass</span>
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-[10.5px]">
+          <span className="w-3 h-3 rounded bg-slate-900 border border-white inline-block"></span>
+          <span className="text-slate-700">10 Warehouse Nodes (WH01–WH10)</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-6 h-0.5 border-b-2 border-dashed border-amber-500 inline-block"></span>
-          <span className="text-amber-700 font-medium flex items-center gap-1">
-            <span>⚠️</span> Route B 🟠 IMPACTED (Congested)
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="w-6 h-0.5 border-b-2 border-dashed border-rose-500 inline-block"></span>
-          <span className="text-rose-600 font-bold flex items-center gap-1">
-            <span>⛔</span> Route A/C 🔴 DISRUPTED (Blocked)
-          </span>
-        </div>
-        <div className="pt-1.5 border-t border-slate-200 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px]">
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-sm bg-blue-600 inline-block"></span>
-            <span className="text-slate-600">Supplier</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-sm bg-slate-900 inline-block"></span>
-            <span className="text-slate-600">Warehouse Hub</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
-            <span className="text-slate-600">Junction Node</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span>
-            <span className="text-slate-600">Customer</span>
-          </div>
+        <div className="flex items-center gap-2 text-[10.5px]">
+          <span className="text-[11px]">🚚</span>
+          <span className="text-slate-700">15 Real In-Transit Vehicles</span>
         </div>
       </div>
 
-      {/* FLOATING "SIMULATION RUNNING" OVERLAY (Requirement 5: 6-Step Visual Simulation) */}
+      {/* 6-Step Simulation Overlay Card */}
       {isSimulating && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[420px] max-w-[90vw] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-sky-200 p-4 transition-all animate-in fade-in">
+        <div className="absolute bottom-4 right-4 z-20 bg-slate-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-blue-500/80 shadow-2xl text-white w-72 select-none">
           <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 text-sky-600 animate-spin" />
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                Quantum Swarm Simulation Running
-              </span>
-            </div>
-            <span className="text-xs font-mono font-bold text-sky-700">
-              {Math.round(simulationProgress)}%
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+              Simulating Swarm Impact
+            </span>
+            <span className="text-xs font-mono font-bold text-white">
+              {simulationProgress}%
             </span>
           </div>
-
-          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mb-3">
+          <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-3">
             <div
-              className="bg-gradient-to-r from-sky-600 to-blue-600 h-full transition-all duration-300"
               style={{ width: `${simulationProgress}%` }}
+              className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full transition-all duration-300"
             ></div>
           </div>
-
-          <div className="space-y-1.5 text-xs">
-            {simulationSteps.map((st) => (
-              <div
-                key={st.stepNumber}
-                className="flex items-center justify-between py-0.5 text-slate-700"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-slate-400 font-bold text-[10px]">
-                    STEP {st.stepNumber}
-                  </span>
-                  <span
-                    className={`font-semibold text-[11px] ${
-                      st.status === 'completed'
-                        ? 'text-emerald-700'
-                        : st.status === 'running'
-                        ? 'text-sky-700 font-bold'
-                        : 'text-slate-400'
-                    }`}
-                  >
-                    {st.title}
-                  </span>
-                </div>
-
-                <div>
-                  {st.status === 'completed' && (
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                      ✓ Done
-                    </span>
-                  )}
-                  {st.status === 'running' && (
-                    <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded border border-sky-200 flex items-center gap-1">
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> In progress
-                    </span>
-                  )}
-                  {st.status === 'pending' && (
-                    <span className="text-[10px] font-mono text-slate-400">Waiting</span>
-                  )}
-                </div>
+          <div className="space-y-1 text-[11px] font-sans">
+            {simulationSteps.map((s) => (
+              <div key={s.stepNumber} className="flex items-center justify-between">
+                <span
+                  className={
+                    s.status === 'completed'
+                      ? 'text-emerald-400 font-medium'
+                      : s.status === 'running'
+                      ? 'text-white font-bold'
+                      : 'text-slate-500'
+                  }
+                >
+                  Step {s.stepNumber}: {s.title}
+                </span>
+                <span className="font-mono text-[10px]">
+                  {s.status === 'completed' && '✓'}
+                  {s.status === 'running' && '...'}
+                  {s.status === 'pending' && '○'}
+                </span>
               </div>
             ))}
           </div>
         </div>
       )}
-
     </div>
   );
 };

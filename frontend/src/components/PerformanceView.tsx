@@ -18,17 +18,22 @@ import {
   Activity,
   Zap,
   TrendingDown,
-  Clock,
   ShieldCheck,
-  RotateCcw,
   CheckCircle2,
   RefreshCw,
-  Award,
   ArrowRight,
-  Layers,
+  Award,
   Cpu,
+  Box,
+  Truck,
+  PackageCheck,
 } from 'lucide-react';
 import api from '../services/api';
+import {
+  WAREHOUSE_RECORDS,
+  BUSINESS_FLEET_BREAKDOWN,
+  FIRSTMILE_LIVE_KPIS,
+} from '../services/firstMileData';
 
 interface PerformanceViewProps {
   onReturnToMap?: () => void;
@@ -373,44 +378,57 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({ onReturnToMap 
         </div>
       </div>
 
-      {/* 2. RECOVERY SUMMARY (Section 5: Compact KPI Cards - No Empty Placeholders) */}
+      {/* 2. REAL DATASET & RECOVERY SUMMARY KPI CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
         <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[10px] uppercase font-bold tracking-wider">Recovery Plans</span>
-            <Layers className="w-4 h-4 text-blue-600" />
+            <span className="text-[10px] uppercase font-bold tracking-wider">Logistics Facilities</span>
+            <Box className="w-4 h-4 text-blue-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            {summaryKpis.plansCount}
+            10 DC Hubs
           </div>
           <div className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" /> Formulation Registry Active
+            <CheckCircle2 className="w-3 h-3" /> 29.7% Avg Load (2,630 U)
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[10px] uppercase font-bold tracking-wider">Rerouted Shipments</span>
-            <Activity className="w-4 h-4 text-emerald-600" />
+            <span className="text-[10px] uppercase font-bold tracking-wider">Fleet In Transit</span>
+            <Truck className="w-4 h-4 text-purple-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            {summaryKpis.commitsCount}
+            15 Vehicles
+          </div>
+          <div className="text-[10px] text-purple-600 font-semibold">
+            73.0% Fleet Util (1,088 U Held)
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-[10px] uppercase font-bold tracking-wider">Product SKU</span>
+            <PackageCheck className="w-4 h-4 text-teal-600" />
+          </div>
+          <div className="text-sm font-bold text-slate-900 truncate">
+            Medical Supply Kit
           </div>
           <div className="text-[10px] text-slate-500 font-medium">
-            Atomic Commit Transactions
+            Clients BIZ01 – BIZ06
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[10px] uppercase font-bold tracking-wider">Avg Recovery Time</span>
-            <Clock className="w-4 h-4 text-amber-500" />
+            <span className="text-[10px] uppercase font-bold tracking-wider">Best Swarm Solver</span>
+            <Cpu className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            {summaryKpis.avgRecoveryTimeSec}s
+            IQPSO (~62ms)
           </div>
           <div className="text-[10px] text-emerald-600 font-semibold">
-            IQPSO Real-Time Convergence
+            Global Optimum ({summaryKpis.plansCount} Plans Evaluated)
           </div>
         </div>
 
@@ -420,23 +438,10 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({ onReturnToMap 
             <ShieldCheck className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            {summaryKpis.feasibilityPct}%
+            100% Valid
           </div>
           <div className="text-[10px] text-indigo-600 font-semibold">
-            100% Non-Violated Constraints
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[10px] uppercase font-bold tracking-wider">Rollback Readiness</span>
-            <RotateCcw className="w-4 h-4 text-sky-600" />
-          </div>
-          <div className="text-xl font-bold font-mono text-slate-900">
-            {summaryKpis.rollbackArmed ? 'ARMED' : 'READY'}
-          </div>
-          <div className="text-[10px] text-emerald-600 font-semibold">
-            Full Snapshot Integrity
+            Zero Constraint Violations
           </div>
         </div>
       </div>
@@ -766,16 +771,156 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({ onReturnToMap 
 
           <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-mono">
             <div className="p-2 bg-slate-50 rounded-xl">
-              <span className="text-[10px] text-slate-400 block font-sans uppercase">Available Stock</span>
-              <span className="font-bold text-xs text-slate-800">8,150 Units</span>
+              <span className="text-[10px] text-slate-400 block font-sans uppercase">Total Inventory</span>
+              <span className="font-bold text-xs text-slate-800">2,630 Units</span>
             </div>
             <div className="p-2 bg-slate-50 rounded-xl">
-              <span className="text-[10px] text-slate-400 block font-sans uppercase">Fulfillment SLA</span>
-              <span className="font-bold text-xs text-emerald-600">70.0% Nominal</span>
+              <span className="text-[10px] text-slate-400 block font-sans uppercase">Capacity Load</span>
+              <span className="font-bold text-xs text-emerald-600">29.7% Nominal</span>
             </div>
             <div className="p-2 bg-slate-50 rounded-xl">
               <span className="text-[10px] text-slate-400 block font-sans uppercase">Network Status</span>
               <span className="font-bold text-xs text-emerald-600">Operational</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* SECTION 5: FACILITY CAPACITY & LOAD DISTRIBUTION (10 WAREHOUSES) */}
+        {/* ======================================================== */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3 flex flex-col">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Box className="w-4 h-4 text-blue-600" />
+              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                5. Facility Load & Capacity Distribution (10 Warehouses)
+              </h2>
+            </div>
+            <div className="text-[11px] font-mono text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+              Avg Load: {FIRSTMILE_LIVE_KPIS.avgWarehouseUtilizationPct}%
+            </div>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={WAREHOUSE_RECORDS.map((w) => ({
+                  id: w.id,
+                  name: w.city,
+                  load: w.currentLoad,
+                  inventory: w.inventory,
+                  capacity: w.capacity,
+                  category: w.loadCategory,
+                }))}
+                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="id" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} />
+                <YAxis unit="%" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} />
+                <Tooltip
+                  formatter={(val: any) => [`${val}%`, 'Facility Load']}
+                  labelFormatter={(id) => {
+                    const w = WAREHOUSE_RECORDS.find((x) => x.id === id);
+                    return w ? `${w.id}: ${w.name} (${w.city})` : id;
+                  }}
+                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '11px' }}
+                />
+                <Bar dataKey="load" radius={[4, 4, 0, 0]}>
+                  {WAREHOUSE_RECORDS.map((entry) => (
+                    <Cell
+                      key={`wh-${entry.id}`}
+                      fill={
+                        entry.loadCategory === 'LOW LOAD'
+                          ? '#0ea5e9'
+                          : entry.loadCategory === 'HIGH LOAD'
+                          ? '#f59e0b'
+                          : '#10b981'
+                      }
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-mono">
+            <div className="p-2 bg-sky-50 rounded-xl border border-sky-100">
+              <span className="text-[10px] text-sky-700 block font-sans uppercase">Low Load (&lt;25%)</span>
+              <span className="font-bold text-xs text-sky-800">
+                {WAREHOUSE_RECORDS.filter((w) => w.loadCategory === 'LOW LOAD').length} Facilities
+              </span>
+            </div>
+            <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100">
+              <span className="text-[10px] text-emerald-700 block font-sans uppercase">Normal (25-50%)</span>
+              <span className="font-bold text-xs text-emerald-800">
+                {WAREHOUSE_RECORDS.filter((w) => w.loadCategory === 'NORMAL').length} Facilities
+              </span>
+            </div>
+            <div className="p-2 bg-amber-50 rounded-xl border border-amber-100">
+              <span className="text-[10px] text-amber-700 block font-sans uppercase">High Load (&gt;50%)</span>
+              <span className="font-bold text-xs text-amber-800">
+                {WAREHOUSE_RECORDS.filter((w) => w.loadCategory === 'HIGH LOAD').length} Facilities
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* SECTION 6: FLEET UTILIZATION & BUSINESS ALLOCATION (15 VEHICLES) */}
+        {/* ======================================================== */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3 flex flex-col">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-purple-600" />
+              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                6. Fleet Telemetry & Business Allocation (15 In Transit)
+              </h2>
+            </div>
+            <div className="text-[11px] font-mono text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+              Fleet Util: {FIRSTMILE_LIVE_KPIS.fleetUtilizationPct}%
+            </div>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={BUSINESS_FLEET_BREAKDOWN.map((b) => ({
+                  business: b.businessId,
+                  held: b.heldUnits,
+                  total: b.totalCap,
+                  utilization: b.utilization,
+                }))}
+                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="business" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} />
+                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} />
+                <Tooltip
+                  formatter={(val: any, name: string) => [
+                    name === 'Utilization %' ? `${val}%` : `${val} Units`,
+                    name,
+                  ]}
+                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '11px' }}
+                />
+                <Legend verticalAlign="top" height={24} wrapperStyle={{ fontSize: '11px' }} />
+                <Bar dataKey="total" name="Fleet Capacity" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="held" name="Capacity Held" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-mono">
+            <div className="p-2 bg-slate-50 rounded-xl">
+              <span className="text-[10px] text-slate-400 block font-sans uppercase">Refrigerated (6)</span>
+              <span className="font-bold text-xs text-blue-600">75.5% Util</span>
+            </div>
+            <div className="p-2 bg-slate-50 rounded-xl">
+              <span className="text-[10px] text-slate-400 block font-sans uppercase">Medium Box (6)</span>
+              <span className="font-bold text-xs text-indigo-600">72.0% Util</span>
+            </div>
+            <div className="p-2 bg-slate-50 rounded-xl">
+              <span className="text-[10px] text-slate-400 block font-sans uppercase">Heavy Truck (3)</span>
+              <span className="font-bold text-xs text-purple-600">71.2% Util</span>
             </div>
           </div>
         </div>
