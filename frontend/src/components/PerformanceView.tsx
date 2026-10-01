@@ -97,13 +97,24 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({ onReturnToMap 
   // 1. Fetch live telemetry and recovery statistics
   const fetchDashboardData = useCallback(async () => {
     try {
+      const envUrl = (typeof process !== 'undefined' && process.env?.BACKEND_URL)
+        ? process.env.BACKEND_URL
+        : (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
+          ? import.meta.env.VITE_BACKEND_URL
+          : '';
+      const apiBase = envUrl
+        ? `${envUrl.replace(/\/+$/, '')}/api`
+        : (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+          ? '/api'
+          : 'http://localhost:8000/api';
+
       // Recovery dashboard
-      const recoveryRes: any = await fetch('http://localhost:8000/api/dashboard/recovery')
+      const recoveryRes: any = await fetch(`${apiBase}/dashboard/recovery`)
         .then((r) => r.json())
         .catch(() => null);
 
       // Live KPIs
-      const kpiRes: any = await fetch('http://localhost:8000/api/dashboard/kpis')
+      const kpiRes: any = await fetch(`${apiBase}/dashboard/kpis`)
         .then((r) => r.json())
         .catch(() => null);
 

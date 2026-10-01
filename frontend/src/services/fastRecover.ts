@@ -18,7 +18,25 @@ import type {
 } from '../types/logistics.ts';
 import logisticsRepository from './logisticsRepository.ts';
 
-const BACKEND_BASE_URL = 'http://127.0.0.1:8000/api';
+const getBackendBaseUrl = (): string => {
+  const envUrl = (typeof process !== 'undefined' && process.env?.BACKEND_URL)
+    ? process.env.BACKEND_URL
+    : (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
+      ? import.meta.env.VITE_BACKEND_URL
+      : '';
+
+  if (envUrl) {
+    return `${envUrl.replace(/\/+$/, '')}/api`;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return '/api';
+  }
+
+  return 'http://127.0.0.1:8000/api';
+};
+
+const BACKEND_BASE_URL = getBackendBaseUrl();
 
 export interface FastRecoverContext {
   simDate: string;

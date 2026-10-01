@@ -6,7 +6,25 @@ import {
   BenchmarkResponse 
 } from '../types';
 
-const BASE_URL = 'http://localhost:8000/api';
+const getBackendUrl = (): string => {
+  const envUrl = (typeof process !== 'undefined' && process.env?.BACKEND_URL)
+    ? process.env.BACKEND_URL
+    : (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
+      ? import.meta.env.VITE_BACKEND_URL
+      : '';
+
+  if (envUrl) {
+    return `${envUrl.replace(/\/+$/, '')}/api`;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return '/api';
+  }
+
+  return 'http://localhost:8000/api';
+};
+
+const BASE_URL = getBackendUrl();
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
