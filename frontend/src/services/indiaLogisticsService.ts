@@ -7,9 +7,9 @@
 import {
   WAREHOUSE_RECORDS,
   VEHICLE_TELEMETRY_RECORDS,
-  NETWORK_FLOWS,
+  JUNCTION_RECORDS,
+  GRAPH_EDGES,
   FIRSTMILE_LIVE_KPIS,
-  WAREHOUSE_MAP_BY_ID,
   VehicleType,
   BusinessId,
 } from './firstMileData';
@@ -42,7 +42,9 @@ export interface LogisticsRoute {
   estTimeHr: number;
   status: 'active' | 'disrupted' | 'impacted' | 'recommended' | 'candidate';
   isAlternate?: boolean;
-  candidateGroup?: 'A' | 'B';
+  candidateGroup?: 'A' | 'B' | 'C';
+  candidateLabel?: string;
+  highway?: string;
   vehicleNo?: string;
   flowLabel?: string;
   businessId?: string;
@@ -161,7 +163,7 @@ export interface ScenarioDefinition {
   primarySelectedShipmentId: string;
 }
 
-// 1. Normalized Facilities & Waypoints (10 Real Warehouses + Transit Junctions)
+// 1. Normalized Facilities & Waypoints (10 Real Warehouses + 21 Realistic Highway Junctions)
 export const FIRSTMILE_NODES: LogisticsNode[] = [
   ...WAREHOUSE_RECORDS.map((w) => ({
     id: w.id,
@@ -177,90 +179,43 @@ export const FIRSTMILE_NODES: LogisticsNode[] = [
     address: w.address,
     product: w.product,
     status: w.status,
+    isJunction: false,
   })),
-  // Transit Bypass Junctions
-  { id: 'J-KURNOOL', name: 'Kurnool Transit Junction (NH-44)', city: 'Kurnool', type: 'junction', lat: 15.8281, lon: 78.0373, isJunction: true },
-  { id: 'J-NELLORE', name: 'Nellore Coastal Waypoint (NH-16)', city: 'Nellore', type: 'junction', lat: 14.4426, lon: 79.9865, isJunction: true },
-  { id: 'J-SOLAPUR', name: 'Solapur Western Junction (NH-65)', city: 'Solapur', type: 'junction', lat: 17.6599, lon: 75.9064, isJunction: true },
-  { id: 'J-NANDED', name: 'Nanded Hub Waypoint (NH-161)', city: 'Nanded', type: 'junction', lat: 19.1383, lon: 77.3210, isJunction: true },
+  ...JUNCTION_RECORDS.map((j) => ({
+    id: j.id,
+    name: j.name,
+    city: j.city,
+    type: 'junction' as LogisticsNodeType,
+    lat: j.lat,
+    lon: j.lon,
+    address: `${j.highway} Transit Waypoint, ${j.city}`,
+    status: 'Operational',
+    isJunction: true,
+  })),
 ];
 
 // Alias for backwards compatibility
 export const INDIA_NODES = FIRSTMILE_NODES;
 
-// 2. Normalized Logistics Network Flows (15 Active Corridors)
-export const FIRSTMILE_ROUTES: LogisticsRoute[] = NETWORK_FLOWS.map((f) => {
-  const fromWh = WAREHOUSE_MAP_BY_ID.get(f.fromWarehouseId)!;
-  const toWh = WAREHOUSE_MAP_BY_ID.get(f.toWarehouseId)!;
-  const dist = Math.round(
-    Math.hypot((toWh.lat - fromWh.lat) * 111, (toWh.lon - fromWh.lon) * 105)
-  );
-  return {
-    id: f.id,
-    name: `${f.flowLabel} (${f.vehicleNo})`,
-    fromId: f.fromWarehouseId,
-    toId: f.toWarehouseId,
-    distanceKm: dist,
-    estTimeHr: +(dist / 55).toFixed(1),
-    status: 'active' as const,
-    vehicleNo: f.vehicleNo,
-    flowLabel: f.flowLabel,
-    businessId: f.businessId,
-  };
-});
-
-// Candidate alternate corridors revealed during simulation recovery
-export const FIRSTMILE_ALTERNATE_ROUTES: LogisticsRoute[] = [
-  {
-    id: 'ALT-COASTAL-01',
-    name: 'Hyderabad (WH02) ➔ Vijayawada (WH07) Coastal Bypass',
-    fromId: 'WH02',
-    toId: 'WH07',
-    distanceKm: 275,
-    estTimeHr: 4.8,
-    status: 'candidate',
-    isAlternate: true,
-    candidateGroup: 'A',
-  },
-  {
-    id: 'ALT-COASTAL-02',
-    name: 'Vijayawada (WH07) ➔ Chennai North (WH03) Bypass',
-    fromId: 'WH07',
-    toId: 'WH03',
-    distanceKm: 430,
-    estTimeHr: 7.2,
-    status: 'candidate',
-    isAlternate: true,
-    candidateGroup: 'A',
-  },
-  {
-    id: 'ALT-WESTERN-01',
-    name: 'Pune (WH10) ➔ Solapur (J-SOLAPUR) ➔ Hyderabad (WH01) Detour',
-    fromId: 'WH10',
-    toId: 'WH01',
-    distanceKm: 560,
-    estTimeHr: 9.5,
-    status: 'candidate',
-    isAlternate: true,
-    candidateGroup: 'B',
-  },
-  {
-    id: 'ALT-INLAND-01',
-    name: 'Vijayawada (WH07) ➔ Warangal (WH09) ➔ Visakhapatnam Detour',
-    fromId: 'WH07',
-    toId: 'WH09',
-    distanceKm: 210,
-    estTimeHr: 3.8,
-    status: 'candidate',
-    isAlternate: true,
-    candidateGroup: 'A',
-  },
-];
+// 2. Normalized Logistics Network Flows (True Graph Edges)
+export const FIRSTMILE_ROUTES: LogisticsRoute[] = GRAPH_EDGES.map((edge) => ({
+  id: edge.id,
+  name: edge.name,
+  fromId: edge.fromId,
+  toId: edge.toId,
+  distanceKm: edge.distanceKm,
+  estTimeHr: edge.estTimeHr,
+  status: edge.status,
+  isAlternate: edge.isAlternate,
+  candidateGroup: edge.candidateGroup,
+  candidateLabel: edge.candidateLabel,
+  highway: edge.highway,
+}));
 
 // Alias for backwards compatibility
-export const INITIAL_ROUTES: LogisticsRoute[] = [...FIRSTMILE_ROUTES, ...FIRSTMILE_ALTERNATE_ROUTES];
+export const INITIAL_ROUTES: LogisticsRoute[] = FIRSTMILE_ROUTES;
 
-// 3. Normalized In-Transit Fleet (15 Vehicles with Real Telemetry)
+// 3. Normalized In-Transit Fleet (15 Vehicles with Multi-Node Telemetry)
 export const FIRSTMILE_SHIPMENTS: MovingShipment[] = VEHICLE_TELEMETRY_RECORDS.map((v) => ({
   id: v.vehicleNo,
   vehicleNo: v.vehicleNo,
@@ -280,8 +235,8 @@ export const FIRSTMILE_SHIPMENTS: MovingShipment[] = VEHICLE_TELEMETRY_RECORDS.m
   lastUpdatedLocation: v.lastUpdatedLocation,
   lastUpdatedTime: v.lastUpdatedTime,
   currentRouteId: `FLOW-${v.vehicleNo}`,
-  routePath: [v.fromWarehouseId, v.toWarehouseId],
-  alternatePath: [v.fromWarehouseId, 'WH07', v.toWarehouseId],
+  routePath: v.routePath || [v.fromWarehouseId, v.toWarehouseId],
+  alternatePath: v.alternatePath || [v.fromWarehouseId, 'WH07', v.toWarehouseId],
   status: 'IN_TRANSIT' as const,
   eta: v.lastUpdatedTime.split(' ')[1] + ' IST',
   progress: v.progress,
@@ -304,7 +259,7 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
     disruptions: [],
     recovery: {
       title: 'Nominal Fleet & Warehouse Operation',
-      corridor: 'All 15 inter-facility flows operating nominally',
+      corridor: 'All inter-facility flows operating nominally along highway grid',
       travelTimeDelta: '0.0h',
       distanceDelta: '0 km',
       costDelta: '0%',
@@ -314,36 +269,16 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
       recoveryRouteDesc: 'Scheduled standard transit',
       recoveryDistKm: 580,
       recoveryTimeHr: 10.5,
-      explanation: 'All 10 warehouses and 15 in-transit vehicles operating within nominal thresholds. 0 disruptions detected across digital twin network.',
-      viaJunctions: 'Nominal logistics flows',
+      explanation: 'All 10 warehouses, 21 intermediate junctions, and 15 in-transit vehicles operating within nominal thresholds. 0 disruptions detected across digital twin network.',
+      viaJunctions: 'Nominal highway junction vectors',
       bypassCoords: [15.8281, 78.0373],
     },
     affectedShipmentIds: [],
     delayedProgressMap: {},
-    routeStatuses: {
-      'FLOW-TS09AB1001': 'active',
-      'FLOW-TS10CD2045': 'active',
-      'FLOW-TN09EF3112': 'active',
-      'FLOW-TN12GH4488': 'active',
-      'FLOW-KA03JK5521': 'active',
-      'FLOW-KA05LM6702': 'active',
-      'FLOW-AP16NO7834': 'active',
-      'FLOW-AP31PQ8456': 'active',
-      'FLOW-TS12RS9107': 'active',
-      'FLOW-TS08TU1123': 'active',
-      'FLOW-MH12VW2234': 'active',
-      'FLOW-MH14XY3345': 'active',
-      'FLOW-TS07ZA4456': 'active',
-      'FLOW-TN11BC5567': 'active',
-      'FLOW-KA51DE6678': 'active',
-      'ALT-COASTAL-01': 'candidate',
-      'ALT-COASTAL-02': 'candidate',
-      'ALT-WESTERN-01': 'candidate',
-      'ALT-INLAND-01': 'candidate',
-    },
+    routeStatuses: {},
   },
 
-  // Scenario 2: ROAD CLOSURE (Simulated event on NH-44 south of Hyderabad)
+  // Scenario 2: ROAD CLOSURE (Simulated rockfall/landslide on NH-44 south of Jadcherla)
   ROAD_CLOSURE: {
     id: 'ROAD_CLOSURE',
     label: 'ROAD CLOSURE (DIS-002)',
@@ -352,47 +287,58 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
       {
         id: 'DIS-002',
         title: 'Route Blockage (NH-44 Sector)',
-        disruptionType: 'Route Blockage',
-        location: 'NH-44 / Kurnool Corridor (Shamshabad ➔ Manali Corridor)',
-        description: 'Transit corridor blocked due to sudden landslide near Kurnool; vehicle TS09AB1001 stalled.',
+        disruptionType: 'Route Blockage / Landslide',
+        location: 'NH-44: Jadcherla (J-JA) ➔ Kurnool Bypass (J-KURNOOL)',
+        description: 'Transit corridor blocked due to sudden rockfall & landslide on NH-44; road segment impassable for vehicle TS09AB1001.',
         severity: 4,
-        capacityImpact: '100% corridor blockage',
+        capacityImpact: '100% segment blockage',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'FLOW-TS09AB1001',
-        blockedRouteName: 'FLOW-TS09AB1001 (Shamshabad ➔ Manali)',
-        fromCity: 'Hyderabad',
-        toCity: 'Chennai',
-        coordinates: [15.8281, 78.0373], // Kurnool
+        blockedRouteId: 'EDGE-J_JA-J_KURNOOL',
+        blockedRouteName: 'EDGE-J_JA-J_KURNOOL (Jadcherla ➔ Kurnool)',
+        fromCity: 'Jadcherla',
+        toCity: 'Kurnool',
+        coordinates: [16.2974, 78.0853], // Exact midpoint of J-JA [16.7667, 78.1333] and J-KURNOOL [15.8281, 78.0373]
       },
     ],
     recovery: {
-      title: 'Reroute via Vijayawada Hub (WH07) Eastern Bypass',
-      corridor: 'Hyderabad (WH02) ➔ Vijayawada (WH07) ➔ Chennai North (WH03)',
+      title: 'IQPSO Optimal Recovery via Coastal NH-16 (Route A)',
+      corridor: 'Hyderabad (WH02) ➔ Jadcherla ➔ Suryapet ➔ Vijayawada (WH07) ➔ Chennai North (WH03)',
       travelTimeDelta: '+2.8h',
       distanceDelta: '+165 km',
       costDelta: '+9.4%',
-      originalRouteDesc: 'WH02 (Hyderabad South) ➔ NH-44 Kurnool ➔ WH03 (Chennai)',
+      originalRouteDesc: 'WH02 ➔ J-JA ➔ J-KURNOOL ➔ J-NANDYAL ➔ J-CUDDAPAH ➔ WH03',
       originalDistKm: 630,
       originalTimeHr: 11.5,
-      recoveryRouteDesc: 'WH02 ➔ WH07 (Vijayawada Hub) ➔ WH03 (Chennai North)',
+      recoveryRouteDesc: 'WH02 ➔ J-JA ➔ J-SURYAPET ➔ WH07 ➔ J-GUNTUR ➔ J-ONGOLE ➔ J-NELLORE ➔ WH03',
       recoveryDistKm: 795,
       recoveryTimeHr: 14.3,
-      explanation: 'Quantum Swarm optimizer reallocated vehicle TS09AB1001 via Eastern Corridor (WH07 Vijayawada Hub), completely avoiding the blocked NH-44 landslide sector.',
-      viaJunctions: 'WH07 (Vijayawada Hub), J-NELLORE (Nellore Coastal Waypoint)',
+      explanation: 'IQPSO Swarm optimizer evaluated 3 candidate bypass corridors and selected Route A (via Suryapet & Coastal NH-16). Candidates B (Anantapur) and C (Tirupati Ghats) were rejected due to higher cost & road risk.',
+      viaJunctions: 'J-JA (Jadcherla) ➔ J-SURYAPET ➔ WH07 (Vijayawada) ➔ J-GUNTUR ➔ J-ONGOLE ➔ J-NELLORE',
       bypassCoords: [16.5414, 80.7981], // WH07 Vijayawada
     },
     affectedShipmentIds: ['TS09AB1001'],
-    delayedProgressMap: { 'TS09AB1001': 0.35 },
+    delayedProgressMap: { 'TS09AB1001': 0.16 }, // Paused safely at J-JA before blocked sector
     routeStatuses: {
-      'FLOW-TS09AB1001': 'disrupted',
-      'ALT-COASTAL-01': 'recommended',
-      'ALT-COASTAL-02': 'recommended',
+      'EDGE-J_JA-J_KURNOOL': 'disrupted',
+      // Candidate A: Recommended (Fastest) via Coastal NH-16
+      'EDGE-J_JA-J_SURYAPET': 'candidate',
+      'EDGE-J_SURYAPET-WH07': 'candidate',
+      'EDGE-WH07-J_GUNTUR': 'candidate',
+      'EDGE-J_GUNTUR-J_ONGOLE': 'candidate',
+      'EDGE-J_ONGOLE-J_NELLORE': 'candidate',
+      'EDGE-J_NELLORE-WH03': 'candidate',
+      // Candidate B: Secondary (Higher Cost) via Anantapur
+      'EDGE-J_JA-J_ANANTAPUR': 'candidate',
+      'EDGE-J_ANANTAPUR-J_CUDDAPAH': 'candidate',
+      // Candidate C: High Risk / Congested via Tirupati Ghats
+      'EDGE-J_ANANTAPUR-J_TIRUPATI': 'candidate',
+      'EDGE-J_TIRUPATI-WH03': 'candidate',
     },
   },
 
-  // Scenario 3: SEVERE ACCIDENT (DIS-006 on Western Corridor)
+  // Scenario 3: SEVERE ACCIDENT (DIS-006 on Western Corridor NH-160)
   ACCIDENT: {
     id: 'ACCIDENT',
     label: 'SEVERE ACCIDENT (DIS-006)',
@@ -402,45 +348,47 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
         id: 'DIS-006',
         title: 'Corridor Collision / Breakdown',
         disruptionType: 'Vehicle Breakdown / Collision',
-        location: 'NH-65 (Chakan Pune ➔ Jeedimetla Hyderabad)',
+        location: 'NH-160: Ahmednagar (J-AHMEDNAGAR) ➔ Solapur (J-SOLAPUR)',
         description: 'Major multivehicle collision closed express lane; heavy vehicle MH12VW2234 delayed.',
         severity: 3,
         capacityImpact: '60% capacity restriction',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'FLOW-MH12VW2234',
-        blockedRouteName: 'FLOW-MH12VW2234 (Chakan ➔ Jeedimetla)',
-        fromCity: 'Pune',
-        toCity: 'Hyderabad',
-        coordinates: [17.6599, 75.9064], // Solapur
+        blockedRouteId: 'EDGE-J_AHMEDNAGAR-J_SOLAPUR',
+        blockedRouteName: 'EDGE-J_AHMEDNAGAR-J_SOLAPUR (Ahmednagar ➔ Solapur)',
+        fromCity: 'Ahmednagar',
+        toCity: 'Solapur',
+        coordinates: [18.3775, 75.3272], // Midpoint of Ahmednagar [19.0952, 74.7480] and Solapur [17.6599, 75.9064]
       },
     ],
     recovery: {
-      title: 'Reroute via Solapur Bypass (J-SOLAPUR)',
-      corridor: 'Pune (WH10) ➔ Solapur ➔ Hyderabad Central (WH01)',
+      title: 'IQPSO Recovery via Solapur Direct Express Bypass (Route A)',
+      corridor: 'Pune (WH10) ➔ Solapur Direct (NH-65) ➔ Hyderabad (WH01)',
       travelTimeDelta: '+1.9h',
       distanceDelta: '+90 km',
       costDelta: '+6.2%',
-      originalRouteDesc: 'WH10 (Pune West) ➔ NH-65 ➔ WH01 (Hyderabad Central)',
+      originalRouteDesc: 'WH10 ➔ J-AHMEDNAGAR ➔ J-SOLAPUR ➔ WH02 ➔ WH01',
       originalDistKm: 560,
       originalTimeHr: 10.0,
-      recoveryRouteDesc: 'WH10 ➔ Solapur Detour ➔ WH01',
+      recoveryRouteDesc: 'WH10 ➔ J-SOLAPUR (Direct NH-65 Bypass) ➔ WH02 ➔ WH01',
       recoveryDistKm: 650,
       recoveryTimeHr: 11.9,
-      explanation: 'Swarm intelligence diverted heavy vehicle MH12VW2234 around the NH-65 collision bottleneck via the Southern Solapur bypass corridor.',
+      explanation: 'Swarm intelligence diverted heavy vehicle MH12VW2234 around the NH-160 collision bottleneck via the Southern Solapur bypass corridor.',
       viaJunctions: 'J-SOLAPUR (Solapur Transit Waypoint)',
       bypassCoords: [17.6599, 75.9064],
     },
     affectedShipmentIds: ['MH12VW2234'],
-    delayedProgressMap: { 'MH12VW2234': 0.40 },
+    delayedProgressMap: { 'MH12VW2234': 0.20 },
     routeStatuses: {
-      'FLOW-MH12VW2234': 'disrupted',
-      'ALT-WESTERN-01': 'recommended',
+      'EDGE-J_AHMEDNAGAR-J_SOLAPUR': 'disrupted',
+      'EDGE-WH10-J_SOLAPUR': 'candidate',
+      'EDGE-J_AHMEDNAGAR-J_NANDED': 'candidate',
+      'EDGE-J_NANDED-WH01': 'candidate',
     },
   },
 
-  // Scenario 4: EXTREME WEATHER (DIS-003 on Coastal Corridor)
+  // Scenario 4: EXTREME WEATHER (DIS-003 on Coastal Corridor NH-16)
   EXTREME_WEATHER: {
     id: 'EXTREME_WEATHER',
     label: 'EXTREME WEATHER (DIS-003)',
@@ -449,42 +397,44 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
       {
         id: 'DIS-003',
         title: 'Cyclonic Coastal Deluge',
-        disruptionType: 'Extreme Weather',
-        location: 'NH-16 Coastal Belt (Gannavaram ➔ Gajuwaka)',
-        description: 'Torrential downpour flooded coastal highway; heavy vehicle AP16NO7834 halted.',
+        disruptionType: 'Extreme Weather / Flooding',
+        location: 'NH-16: Rajahmundry (J-RAJAHMUNDRY) ➔ Tuni (J-TUNI)',
+        description: 'Torrential downpour flooded coastal express lanes; segment inundated, halting truck AP16NO7834.',
         severity: 4,
         capacityImpact: '75% velocity reduction',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'FLOW-AP16NO7834',
-        blockedRouteName: 'FLOW-AP16NO7834 (Gannavaram ➔ Gajuwaka)',
-        fromCity: 'Vijayawada',
-        toCity: 'Visakhapatnam',
-        coordinates: [17.15, 82.15],
+        blockedRouteId: 'EDGE-J_RAJAHMUNDRY-J_TUNI',
+        blockedRouteName: 'EDGE-J_RAJAHMUNDRY-J_TUNI (Rajahmundry ➔ Tuni)',
+        fromCity: 'Rajahmundry',
+        toCity: 'Tuni',
+        coordinates: [17.1788, 82.1779], // Midpoint of Rajahmundry [17.0005, 81.8040] and Tuni [17.3571, 82.5518]
       },
     ],
     recovery: {
-      title: 'Inland Expressway Detour via Warangal Hub (WH09)',
-      corridor: 'Vijayawada (WH07) ➔ Warangal (WH09) ➔ Visakhapatnam (WH08)',
+      title: 'Inland High-Ground Detour via Khammam & Warangal (Route A)',
+      corridor: 'Vijayawada (WH07) ➔ Khammam ➔ Warangal (WH09) ➔ Visakhapatnam (WH08)',
       travelTimeDelta: '+3.5h',
       distanceDelta: '+220 km',
       costDelta: '+12.5%',
-      originalRouteDesc: 'WH07 (Vijayawada) ➔ Coastal NH-16 ➔ WH08 (Visakhapatnam)',
+      originalRouteDesc: 'WH07 ➔ J-RAJAHMUNDRY ➔ J-TUNI ➔ WH08',
       originalDistKm: 350,
       originalTimeHr: 6.5,
-      recoveryRouteDesc: 'WH07 ➔ WH09 (Warangal Hub) ➔ WH08 (Visakhapatnam)',
+      recoveryRouteDesc: 'WH07 ➔ J-KHAMMAM ➔ WH09 ➔ WH08',
       recoveryDistKm: 570,
       recoveryTimeHr: 10.0,
       explanation: 'Severe coastal flooding triggered automated inland reallocation through Warangal Hub (WH09) high ground corridor.',
-      viaJunctions: 'WH09 (Warangal Hub Inland Bypass)',
+      viaJunctions: 'J-KHAMMAM, WH09 (Warangal Hub Inland Bypass)',
       bypassCoords: [17.9784, 79.5218], // WH09 Warangal
     },
     affectedShipmentIds: ['AP16NO7834'],
-    delayedProgressMap: { 'AP16NO7834': 0.45 },
+    delayedProgressMap: { 'AP16NO7834': 0.35 },
     routeStatuses: {
-      'FLOW-AP16NO7834': 'disrupted',
-      'ALT-INLAND-01': 'recommended',
+      'EDGE-J_RAJAHMUNDRY-J_TUNI': 'disrupted',
+      'EDGE-WH07-J_KHAMMAM': 'candidate',
+      'EDGE-J_KHAMMAM-WH09': 'candidate',
+      'EDGE-WH09-WH08': 'candidate',
     },
   },
 
@@ -505,8 +455,8 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'FLOW-TS10CD2045',
-        blockedRouteName: 'WH01 Inbound/Outbound Feed',
+        blockedRouteId: 'EDGE-WH01-WH02',
+        blockedRouteName: 'EDGE-WH01-WH02 (Jeedimetla Feed)',
         fromCity: 'Hyderabad',
         toCity: 'Vijayawada',
         coordinates: [17.5169, 78.4721], // WH01
@@ -531,12 +481,11 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
     affectedShipmentIds: ['TS10CD2045'],
     delayedProgressMap: { 'TS10CD2045': 0.25 },
     routeStatuses: {
-      'FLOW-TS10CD2045': 'impacted',
-      'ALT-COASTAL-01': 'recommended',
+      'EDGE-WH01-WH02': 'impacted',
     },
   },
 
-  // Scenario 6: MULTI-ROUTE DISRUPTION (DIS-008 Cascading Failure)
+  // Scenario 6: MULTI-ROUTE DISRUPTION (Cascading Failure on South & West Trunks)
   MULTI_ROUTE: {
     id: 'MULTI_ROUTE',
     label: 'MULTI-ROUTE DISRUPTION (DIS-008)',
@@ -546,35 +495,35 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
         id: 'DIS-002',
         title: 'Route Blockage (South Trunk)',
         disruptionType: 'Route Blockage',
-        location: 'NH-44 Kurnool Sector (Shamshabad ➔ Manali)',
+        location: 'NH-44: Jadcherla (J-JA) ➔ Kurnool Bypass (J-KURNOOL)',
         description: 'Landslide blocks southern artery for vehicle TS09AB1001.',
         severity: 4,
         capacityImpact: '100% blockage',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'FLOW-TS09AB1001',
-        blockedRouteName: 'FLOW-TS09AB1001 (Shamshabad ➔ Manali)',
-        fromCity: 'Hyderabad',
-        toCity: 'Chennai',
-        coordinates: [15.8281, 78.0373],
+        blockedRouteId: 'EDGE-J_JA-J_KURNOOL',
+        blockedRouteName: 'EDGE-J_JA-J_KURNOOL (Jadcherla ➔ Kurnool)',
+        fromCity: 'Jadcherla',
+        toCity: 'Kurnool',
+        coordinates: [16.2974, 78.0853],
       },
       {
         id: 'DIS-006',
         title: 'Vehicle Breakdown (West Trunk)',
         disruptionType: 'Vehicle Breakdown',
-        location: 'NH-65 Solapur Sector (Chakan ➔ Jeedimetla)',
+        location: 'NH-160: Ahmednagar (J-AHMEDNAGAR) ➔ Solapur (J-SOLAPUR)',
         description: 'Collision stalls heavy vehicle MH12VW2234.',
         severity: 3,
         capacityImpact: '50% reduction',
         affectedShipmentsCount: 1,
         affectedRoutesCount: 1,
         status: 'ACTIVE',
-        blockedRouteId: 'FLOW-MH12VW2234',
-        blockedRouteName: 'FLOW-MH12VW2234 (Chakan ➔ Jeedimetla)',
-        fromCity: 'Pune',
-        toCity: 'Hyderabad',
-        coordinates: [17.6599, 75.9064],
+        blockedRouteId: 'EDGE-J_AHMEDNAGAR-J_SOLAPUR',
+        blockedRouteName: 'EDGE-J_AHMEDNAGAR-J_SOLAPUR (Ahmednagar ➔ Solapur)',
+        fromCity: 'Ahmednagar',
+        toCity: 'Solapur',
+        coordinates: [18.3775, 75.3272],
       },
     ],
     recovery: {
@@ -594,13 +543,17 @@ export const SCENARIO_PRESETS: Record<ScenarioId, ScenarioDefinition> = {
       bypassCoords: [16.5414, 80.7981],
     },
     affectedShipmentIds: ['TS09AB1001', 'MH12VW2234'],
-    delayedProgressMap: { 'TS09AB1001': 0.35, 'MH12VW2234': 0.40 },
+    delayedProgressMap: { 'TS09AB1001': 0.16, 'MH12VW2234': 0.20 },
     routeStatuses: {
-      'FLOW-TS09AB1001': 'disrupted',
-      'FLOW-MH12VW2234': 'disrupted',
-      'ALT-COASTAL-01': 'recommended',
-      'ALT-COASTAL-02': 'recommended',
-      'ALT-WESTERN-01': 'recommended',
+      'EDGE-J_JA-J_KURNOOL': 'disrupted',
+      'EDGE-J_AHMEDNAGAR-J_SOLAPUR': 'disrupted',
+      'EDGE-J_JA-J_SURYAPET': 'candidate',
+      'EDGE-J_SURYAPET-WH07': 'candidate',
+      'EDGE-WH07-J_GUNTUR': 'candidate',
+      'EDGE-J_GUNTUR-J_ONGOLE': 'candidate',
+      'EDGE-J_ONGOLE-J_NELLORE': 'candidate',
+      'EDGE-J_NELLORE-WH03': 'candidate',
+      'EDGE-WH10-J_SOLAPUR': 'candidate',
     },
   },
 };
@@ -643,7 +596,7 @@ export class IndiaLogisticsService {
       title: 'Nominal Network',
       disruptionType: 'None',
       location: 'Pan-Network FirstMile Grid',
-      description: 'All 15 vehicle flows and 10 warehouse hubs operational.',
+      description: 'All 15 vehicle flows, 10 warehouses, and 21 junctions operational.',
       severity: 0,
       capacityImpact: '0%',
       affectedShipmentsCount: 0,
@@ -710,9 +663,7 @@ export class IndiaLogisticsService {
       if (preset.routeStatuses[route.id]) {
         route.status = preset.routeStatuses[route.id];
       } else if (scenarioId === 'NORMAL') {
-        if (!route.isAlternate) {
-          route.status = 'active';
-        }
+        route.status = route.isAlternate ? 'candidate' : 'active';
       }
     }
 
@@ -721,7 +672,7 @@ export class IndiaLogisticsService {
       if (preset.affectedShipmentIds.includes(shp.id)) {
         shp.status = 'DELAYED';
         shp.isAffected = true;
-        shp.eta = 'DELAYED (Disruption)';
+        shp.eta = 'DELAYED (Corridor Blocked)';
         if (preset.delayedProgressMap[shp.id] !== undefined) {
           shp.progress = preset.delayedProgressMap[shp.id];
         }
@@ -732,41 +683,76 @@ export class IndiaLogisticsService {
     }
   }
 
-  // Commit recovery: resolve all active disruptions and activate bypass routes
+  // Commit recovery: KEEP blocked edge RED, highlight winning route GREEN, fade rejected candidates, move vehicle along recovery path
   commitRecovery(): void {
-    for (const d of this.disruptions) {
-      d.status = 'RESOLVED';
-    }
+    if (this.currentScenarioId === 'ROAD_CLOSURE' || this.currentScenarioId === 'MULTI_ROUTE') {
+      // 1. Keep blocked edge RED
+      const blockedEdge = this.routes.find((r) => r.id === 'EDGE-J_JA-J_KURNOOL');
+      if (blockedEdge) blockedEdge.status = 'disrupted';
 
-    const preset = SCENARIO_PRESETS[this.currentScenarioId];
+      // 2. Mark winning candidate edges (Route A) as RECOMMENDED (bright green)
+      const routeAEdges = [
+        'EDGE-J_JA-J_SURYAPET',
+        'EDGE-J_SURYAPET-WH07',
+        'EDGE-WH07-J_GUNTUR',
+        'EDGE-J_GUNTUR-J_ONGOLE',
+        'EDGE-J_ONGOLE-J_NELLORE',
+        'EDGE-J_NELLORE-WH03',
+      ];
+      for (const r of this.routes) {
+        if (routeAEdges.includes(r.id)) {
+          r.status = 'recommended';
+        } else if (r.candidateGroup === 'B' || r.candidateGroup === 'C') {
+          // Unselected candidates remain faint candidate
+          r.status = 'candidate';
+        }
+      }
 
-    // Reroute each affected shipment
-    for (const shpId of preset.affectedShipmentIds) {
-      const shp = this.shipments.find((s) => s.id === shpId);
-      if (shp && shp.alternatePath) {
-        shp.routePath = [...shp.alternatePath];
+      // 3. Update vehicle TS09AB1001 route path and smooth forward progress without jumping
+      const shp = this.shipments.find((s) => s.id === 'TS09AB1001');
+      if (shp) {
+        shp.routePath = ['WH02', 'J-JA', 'J-SURYAPET', 'WH07', 'J-GUNTUR', 'J-ONGOLE', 'J-NELLORE', 'WH03'];
         shp.status = 'REROUTED';
         shp.isAffected = false;
-        shp.eta = `${shp.eta.split(' ')[0] || '10:30'} IST (Recovered)`;
-
-        // Adjust route ID and starting progress on bypass
-        if (shp.id === 'TS09AB1001') {
-          shp.currentRouteId = 'ALT-COASTAL-01';
-          shp.progress = 0.38;
-        } else if (shp.id === 'MH12VW2234') {
-          shp.currentRouteId = 'ALT-WESTERN-01';
-          shp.progress = 0.35;
-        } else if (shp.id === 'AP16NO7834') {
-          shp.currentRouteId = 'ALT-INLAND-01';
-          shp.progress = 0.35;
-        }
+        shp.eta = '14:18 IST (IQPSO Rerouted)';
+        // Starts smoothly at J-JA (0.08 progress along the new 8-node path)
+        shp.progress = 0.08;
       }
     }
 
-    // Ensure recommended routes are marked as recommended flow
-    for (const r of this.routes) {
-      if (preset.routeStatuses[r.id] === 'recommended') {
-        r.status = 'recommended';
+    if (this.currentScenarioId === 'ACCIDENT' || this.currentScenarioId === 'MULTI_ROUTE') {
+      const blockedEdge = this.routes.find((r) => r.id === 'EDGE-J_AHMEDNAGAR-J_SOLAPUR');
+      if (blockedEdge) blockedEdge.status = 'disrupted';
+
+      const winEdge = this.routes.find((r) => r.id === 'EDGE-WH10-J_SOLAPUR');
+      if (winEdge) winEdge.status = 'recommended';
+
+      const shp = this.shipments.find((s) => s.id === 'MH12VW2234');
+      if (shp) {
+        shp.routePath = ['WH10', 'J-SOLAPUR', 'WH02', 'WH01'];
+        shp.status = 'REROUTED';
+        shp.isAffected = false;
+        shp.eta = '11:55 IST (IQPSO Rerouted)';
+        shp.progress = 0.15;
+      }
+    }
+
+    if (this.currentScenarioId === 'EXTREME_WEATHER') {
+      const blockedEdge = this.routes.find((r) => r.id === 'EDGE-J_RAJAHMUNDRY-J_TUNI');
+      if (blockedEdge) blockedEdge.status = 'disrupted';
+
+      const winEdges = ['EDGE-WH07-J_KHAMMAM', 'EDGE-J_KHAMMAM-WH09', 'EDGE-WH09-WH08'];
+      for (const r of this.routes) {
+        if (winEdges.includes(r.id)) r.status = 'recommended';
+      }
+
+      const shp = this.shipments.find((s) => s.id === 'AP16NO7834');
+      if (shp) {
+        shp.routePath = ['WH07', 'J-KHAMMAM', 'WH09', 'WH08'];
+        shp.status = 'REROUTED';
+        shp.isAffected = false;
+        shp.eta = '10:00 IST (IQPSO Rerouted)';
+        shp.progress = 0.15;
       }
     }
   }
