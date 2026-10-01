@@ -1,0 +1,162 @@
+@import 'leaflet/dist/leaflet.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #f8fafc;
+    color: #0f172a;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+  }
+
+  main > :first-child {
+    margin-top: 0 !important;
+  }
+  
+  main > :last-child {
+    margin-bottom: 0 !important;
+  }
+}
+
+/* Technical Precision Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Material Symbols Outlined font styling helper */
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 20;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.material-symbols-fill {
+  font-variation-settings:
+    'FILL' 1,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 20;
+}
+
+/* Micro-interactions */
+button {
+  user-select: none;
+  touch-action: manipulation;
+}
+
+button:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+}
+
+/* Pulsing radar animations */
+@keyframes radar-ping {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.radar-pulse {
+  animation: radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Dynamic Marching-Dash Flow for Selected Recovery Route */
+@keyframes recovery-flow-keyframes {
+  from {
+    stroke-dashoffset: 32;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.recovery-route-flow {
+  stroke-dasharray: 8, 6 !important;
+  animation: recovery-flow-keyframes 1s linear infinite !important;
+}
+
+/* Subtle Pulsing for Disrupted Route */
+@keyframes disrupted-pulse-keyframes {
+  0%, 100% {
+    stroke-opacity: 0.95;
+    stroke-width: 4.5px;
+  }
+  50% {
+    stroke-opacity: 0.35;
+    stroke-width: 6px;
+  }
+}
+
+.disrupted-route-pulse {
+  stroke-dasharray: 8, 8 !important;
+  animation: disrupted-pulse-keyframes 1.8s ease-in-out infinite !important;
+}
+
+/* Impacted Route (Orange Congested) */
+@keyframes impacted-pulse-keyframes {
+  0%, 100% {
+    stroke-opacity: 0.95;
+    stroke-width: 4px;
+  }
+  50% {
+    stroke-opacity: 0.45;
+    stroke-width: 5.5px;
+  }
+}
+
+.impacted-route-congested {
+  stroke-dasharray: 6, 6 !important;
+  animation: impacted-pulse-keyframes 2s ease-in-out infinite !important;
+}
+
+/* Sleek Leaflet Popup Styles */
+.leaflet-popup-content-wrapper {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 14px !important;
+}
+.leaflet-popup-content {
+  margin: 0 !important;
+  line-height: inherit !important;
+}
+.leaflet-popup-tip {
+  background: #0f172a !important;
+}
+.leaflet-container {
+  font-family: inherit !important;
+}
+
